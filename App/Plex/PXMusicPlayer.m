@@ -145,7 +145,9 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     _sessionServer = nil;
 }
 
-- (void)startCurrent {
+- (void)startCurrent { [self startCurrentConverted:NO]; }
+
+- (void)startCurrentConverted:(BOOL)convert {
     PXItem *track = self.current;
     if (!track) return;
     [self endSession];
@@ -154,7 +156,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     [self changed];
     __weak PXMusicPlayer *weak = self;
     PXServer *server = track.server;
-    [server prepareAudio:track.raw done:^(NSDictionary *r, NSError *err) {
+    [server prepareAudio:track.raw convert:convert done:^(NSDictionary *r, NSError *err) {
         PXMusicPlayer *me = weak;
         if (!me || serial != me->_serial) { if (r[@"session"]) [server stopAudioTranscode:r[@"session"]]; return; }
         if (!r[@"url"]) {
@@ -170,6 +172,16 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
         [me->_player play];
         me->_lastReport = 0;
         [me report:@"playing"];
+        // A file the server cannot serve directly (404, unreadable): through
+        // the server conversion once, then the next track.
+        AVPlayerItem *pi = me->_player.currentItem;
+        BOOL direct = [r[@"directPlay"] boolValue];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            PXMusicPlayer *me2 = weak;
+            if (!me2 || serial != me2->_serial || pi.status != AVPlayerItemStatusFailed) return;
+            PXLog(@"music: %@ failed (%@): %@", track.title, direct ? @"direct" : @"converted", pi.error.localizedDescription);
+            if (direct) [me2 startCurrentConverted:YES]; else [me2 next];
+        });
         [me changed];
     }];
 }

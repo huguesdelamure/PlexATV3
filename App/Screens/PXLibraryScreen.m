@@ -186,7 +186,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
             [me setLandscape:NO];
         }
         if (page == 0 && me->_filterIndex == 0 && !me->_square && ![me.section[@"type"] isEqual:@"photo"]) {
-            BOOL landscape = PXItemsPreferLandscape(items);
+            BOOL landscape = PXItemsPreferLandscape(items) || t0 == PXItemPhoto || t0 == PXItemPhotoAlbum;
             if (!me.basePath) PXRememberSectionLayout(me.section, landscape);
             if (landscape != me->_landscape) {
                 PXLog(@"library: %@ -> %@", me.section[@"title"], landscape ? @"16:9 cards" : @"posters");

@@ -213,7 +213,10 @@ static BOOL canDirectPlay(NSDictionary *media) {
     // Direct play only plays the default audio track and no subtitles:
     // any other choice goes through the server (remux or transcode).
     BOOL defaultTracks = !it.selectedSubtitle && (!it.selectedAudio || it.selectedAudio.streamID == [it.audioStreams.firstObject streamID]);
-    if (media && part[@"key"] && canDirectPlay(media) && defaultTracks) {
+    // Extras (trailers…) are hosted online: the iOS 8 TLS stack fails on their
+    // CDN, the server fetches them instead.
+    BOOL online = it.type == PXItemClip;
+    if (media && part[@"key"] && canDirectPlay(media) && defaultTracks && !online) {
         NSString *u = [NSString stringWithFormat:@"%@%@?%@", _uri, part[@"key"], [self plexQuery]];
         done(@{ @"url": [NSURL URLWithString:u], @"directPlay": @YES, @"mode": PXL(@"Lecture directe") }, nil);
         return;
@@ -264,19 +267,21 @@ static BOOL canDirectPlay(NSDictionary *media) {
 
 // Direct play for what AVPlayer decodes (MP3, AAC, ALAC); anything else
 // (FLAC, Opus, Vorbis, WMA…) is converted by the server to AAC over HLS.
-- (void)prepareAudio:(NSDictionary *)track done:(PXJSONBlock)done {
+- (void)prepareAudio:(NSDictionary *)track done:(PXJSONBlock)done { [self prepareAudio:track convert:NO done:done]; }
+
+- (void)prepareAudio:(NSDictionary *)track convert:(BOOL)convert done:(PXJSONBlock)done {
     if (!_uri) {
         __weak PXServer *weak = self;
         [self connect:^(id json, NSError *err) {
             if (err) { done(nil, err); return; }
-            [weak prepareAudio:track done:done];
+            [weak prepareAudio:track convert:convert done:done];
         }];
         return;
     }
     PXItem *it = [PXItem itemWithJSON:track];
     NSString *codec = [it.media[@"audioCodec"] lowercaseString] ?: @"";
     NSString *key = it.part[@"key"];
-    if (key && [@[ @"mp3", @"aac", @"alac" ] containsObject:codec]) {
+    if (!convert && key && [@[ @"mp3", @"aac", @"alac" ] containsObject:codec]) {
         NSString *u = [NSString stringWithFormat:@"%@%@?%@", _uri, key, [self plexQuery]];
         done(@{ @"url": [NSURL URLWithString:u], @"directPlay": @YES }, nil);
         return;

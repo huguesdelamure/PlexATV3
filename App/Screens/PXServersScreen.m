@@ -142,6 +142,8 @@ PXScreen *PXServersScreenNew(void (^completion)(void)) {
     }];
     for (PXServer *s in sorted) {
         NSString *who = s.owned ? PXL(@"ton serveur") : PXLF(@"partagé par %@", s.sourceTitle ?: PXL(@"un ami"));
+        NSString *twin = PXServerTwinLabel(s.resource, [sorted valueForKey:@"resource"]);
+        if (twin) who = [NSString stringWithFormat:@"%@ · %@", twin, who];
         PXListRow *r = [PXListRow title:s.name value:s.online ? who : [who stringByAppendingString:PXL(@" · hors ligne")] action:^{
             [weak push:PXHomeScreenForServer(s)];
         }];

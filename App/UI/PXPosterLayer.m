@@ -170,7 +170,9 @@ static const CGFloat kTitleLine = 30;
         self->_progress.bounds = CGRectMake(0, 0, self->_progressBack.bounds.size.width * prog, 6);
         BOOL container = it.type == PXItemShow || it.type == PXItemSeason;
         NSInteger left = container ? it.unwatchedLeaves : 0;
-        self->_dot.hidden = !it || container || it.watched || prog > 0;
+        // Watch state only means something for movies and episodes.
+        BOOL watchable = it.type == PXItemMovie || it.type == PXItemEpisode;
+        self->_dot.hidden = !it || container || !watchable || it.watched || prog > 0;
         self->_count.hidden = left <= 0 || it.watched;
         if (left > 0) {
             NSString *s = [@(left) stringValue];

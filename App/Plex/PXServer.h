@@ -41,6 +41,7 @@
 - (void)selectStreamsForPart:(NSDictionary *)part audio:(NSInteger)audioID subtitle:(NSInteger)subtitleID done:(PXJSONBlock)done;
 // Music: json {url, directPlay, session (server conversion)}.
 - (void)prepareAudio:(NSDictionary *)track done:(PXJSONBlock)done;
+- (void)prepareAudio:(NSDictionary *)track convert:(BOOL)convert done:(PXJSONBlock)done;   // convert: never direct
 - (void)stopAudioTranscode:(NSString *)session;
 - (NSString *)plexQuery;   // identification + token query string (AVPlayer URLs)
 
