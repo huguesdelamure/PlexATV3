@@ -108,7 +108,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 
 | Feature | Status |
 |---|---|
-| Control from the Plex mobile app (Companion / "Cast to") | planned (GDM advertisement + player API) |
+| Control from the Plex mobile app (Companion / "Cast to") | done (GDM + player API on port 32500; tested with a simulated controller) |
 
 ### Languages and keyboards
 
@@ -131,9 +131,9 @@ with a hardware/OS compromise), **no** (not possible on this device).
    unified search, version choice, other locations.~~ done
 2. ~~Languages and keyboards.~~ done
 3. ~~Plex Home users.~~ done
-4. Collections, playlists, extras, actor pages, advanced filters.
-5. Music.
-6. Photos.
-7. Companion (control from a phone).
+4. ~~Collections, playlists, extras, actor pages~~ done; advanced filters.
+5. ~~Music.~~ done
+6. ~~Photos.~~ done
+7. ~~Companion (control from a phone).~~ done
 8. Live TV / DVR.
 9. Online content, once a TLS path to plex.tv services is validated on the device.

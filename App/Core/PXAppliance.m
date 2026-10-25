@@ -10,6 +10,7 @@
 #import "PXRouter.h"
 #import "PXImageCache.h"
 #import "PXShelfProvider.h"
+#import "PXCompanion.h"
 #import "PXPlex.h"
 #import "PXItem.h"
 #import "PXBackRow.h"
@@ -156,6 +157,7 @@ __attribute__((constructor)) static void PXInit(void) {
         Class c = PXCreateSubclass("PXAppliance", base, [PXApplianceTemplate class]);
         PXLog(@"PXAppliance created: %@ (super %s)", c, base);
         PXInstallMenuIcon();
+        dispatch_async(dispatch_get_main_queue(), ^{ [[PXCompanion shared] start]; });
 #ifdef DEBUG
         dispatch_async(dispatch_get_main_queue(), ^{ PXRegisterDevCommands(); PXDebugStart(); });
 #endif

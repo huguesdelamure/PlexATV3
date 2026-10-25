@@ -1,6 +1,7 @@
 // Settings: server choice, transcode quality, account.
 
 #import "PXRouter.h"
+#import "PXCompanion.h"
 #import "PXBackRow.h"
 #import "PXKeyboard.h"
 #import "PXServer.h"
@@ -96,6 +97,15 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
     [rows addObjectsFromArray:@[
         [PXListRow title:PXL(@"Langue") value:[self languageLabel] action:^{ [weak nextLanguage]; }],
         [PXListRow title:PXL(@"Clavier") value:[self keyboardLabel] action:^{ [weak nextKeyboard]; }],
+        [PXListRow title:PXL(@"Contrôle depuis l'app Plex") value:[PXCompanion enabled] ? PXL(@"Activé") : PXL(@"Désactivé") action:^{
+            BOOL on = ![PXCompanion enabled];
+            PXSettingSet(@"companion", @(on));
+            if (on) [[PXCompanion shared] start]; else [[PXCompanion shared] stop];
+            PXSettingsScreen *me = weak;
+            NSInteger focus = me->_list.focusIndex;
+            [me buildMain];
+            me->_list.focusIndex = focus;
+        }],
         [PXListRow title:PXL(@"Se déconnecter de plex.tv") value:@"" action:^{
             [[PXPlex shared] signOut];
             [weak pop];

@@ -29,6 +29,7 @@ static const CGSize kPreview = { 384, 216 };
 @interface PXPlayerScreen : PXScreen
 @property (nonatomic, strong) PXItem *item;
 @property (nonatomic, assign) double startOffset;
+- (BOOL)pxPlaying;
 @end
 
 @implementation PXPlayerScreen {
@@ -84,8 +85,11 @@ static const CGSize kPreview = { 384, 216 };
 
 #pragma mark - Setup
 
+static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion)
+
 - (void)setup {
     [[PXMusicPlayer shared] stop];   // one player at a time
+    gCurrentPlayer = self;
     self.layer.backgroundColor = [UIColor blackColor].CGColor;
     _backdrop = [CALayer layer];
     _backdrop.frame = self.layer.bounds;
@@ -875,8 +879,11 @@ static const CGSize kPreview = { 384, 216 };
     [super willDisappear];
 }
 
+- (BOOL)pxPlaying { return _player.rate > 0; }
+
 - (void)didPop {
     _gone = YES;
+    if (gCurrentPlayer == self) gCurrentPlayer = nil;
     PXLog(@"player: stop at %@", PXClock([self position]));
     if (!_ended) [self report:@"stopped"];
     [_player pause];
@@ -902,4 +909,25 @@ PXScreen *PXPlayerScreenNew(PXItem *item, double offset) {
     s.startOffset = offset;
     [s setup];
     return s;
+}
+
+#pragma mark - Remote control
+
+NSDictionary *PXVideoPlayerState(void) {
+    PXPlayerScreen *p = gCurrentPlayer;
+    if (!p || !p.item.ratingKey) return nil;
+    return @{ @"state": [p pxPlaying] ? @"playing" : @"paused", @"time": @([p position]), @"duration": @([p duration]),
+              @"ratingKey": p.item.ratingKey, @"server": p.item.server.identifier ?: @"" };
+}
+
+void PXVideoPlayerControl(NSString *command, double value) {
+    PXPlayerScreen *p = gCurrentPlayer;
+    if (!p) return;
+    BOOL playing = [p pxPlaying];
+    if ([command isEqual:@"play"]) { if (!playing) [p togglePause]; }
+    else if ([command isEqual:@"pause"]) { if (playing) [p togglePause]; }
+    else if ([command isEqual:@"stop"]) [p pop];
+    else if ([command isEqual:@"seekTo"]) [p seekTo:value];
+    else if ([command isEqual:@"stepForward"]) [p seekTo:[p position] + 30];
+    else if ([command isEqual:@"stepBack"]) [p seekTo:[p position] - 15];
 }

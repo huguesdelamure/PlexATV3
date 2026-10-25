@@ -162,3 +162,8 @@
 "Tout" = "All";
 "Tout lire" = "Play All";
 "À suivre : %@" = "Up next: %@";
+
+/* Companion */
+"Contrôle depuis l'app Plex" = "Control from the Plex App";
+"Activé" = "On";
+"Désactivé" = "Off";

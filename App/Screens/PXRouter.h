@@ -34,3 +34,7 @@ PXScreen *PXAlbumScreenNew(PXItem *album);
 PXScreen *PXNowPlayingScreenNew(void);
 // Full-screen photos with slideshow.
 PXScreen *PXPhotoScreenNew(NSArray *photos, NSInteger index);
+// Video player remote control (Companion): state {state, time, duration, ratingKey, server}
+// or nil; commands play, pause, stop, seekTo (seconds), stepForward, stepBack.
+NSDictionary *PXVideoPlayerState(void);
+void PXVideoPlayerControl(NSString *command, double value);
