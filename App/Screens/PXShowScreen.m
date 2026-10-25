@@ -145,6 +145,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
             if (n) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? n.viewOffset : 0)];
         }]];
     }
+    [b addObject:[PXButton icon:PXIconNext title:PXL(@"Aléatoire") action:^{ [weak shuffleShow]; }]];
     [b addObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Série vue") : PXL(@"Marquer la série vue") action:^{
         PXShowScreen *me = weak;
         if (!me) return;
@@ -299,6 +300,18 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 - (void)didAppear {
     [super didAppear];
     if (_loadedSeason) { [self loadShow]; }   // refresh progress after playback
+}
+
+// Every episode of the show in random order.
+- (void)shuffleShow {
+    __weak PXShowScreen *weak = self;
+    [self.server get:[NSString stringWithFormat:@"/library/metadata/%@/allLeaves", self.showKey] done:^(NSDictionary *mc, NSError *err) {
+        PXShowScreen *me = weak;
+        NSMutableArray *eps = [[PXItem itemsWithJSON:mc[@"Metadata"]] mutableCopy];
+        if (!me || !eps.count) return;
+        for (NSUInteger i = eps.count; i > 1; i--) [eps exchangeObjectAtIndex:i - 1 withObjectAtIndex:arc4random_uniform((uint32_t)i)];
+        [me push:PXPlayerScreenNewQueue(eps)];
+    }];
 }
 
 // Theme song of the show, quietly, like the official apps (Réglages can turn

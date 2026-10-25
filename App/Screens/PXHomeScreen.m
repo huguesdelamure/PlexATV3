@@ -267,6 +267,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     }
     if ([self showsServersTab]) [defs addObject:@{ @"title": PXL(@"Serveurs"), @"make": ^PXScreen *{ return PXServerListScreenNew(YES); } }];
     if (!self.server) {
+        [defs addObject:@{ @"title": PXL(@"Découvrir"), @"make": ^PXScreen *{ return PXDiscoverScreenNew(); } }];
         [defs addObject:@{ @"title": PXL(@"Rechercher"), @"make": ^PXScreen *{ return PXSearchScreenNew(YES); } }];
         [defs addObject:@{ @"title": PXL(@"Réglages"), @"make": ^PXScreen *{ return PXSettingsScreenNew(YES); } }];
     }

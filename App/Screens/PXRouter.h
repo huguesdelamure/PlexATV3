@@ -28,6 +28,8 @@ PXScreen *PXScreenForRatingKey(NSString *ratingKey);
 PXScreen *PXScreenForRatingKeyOnServer(NSString *ratingKey, PXServer *server);   // nil = primary
 // Starts playback of a movie/episode at offset seconds (-1 = resume point from the server).
 PXScreen *PXPlayerScreenNew(PXItem *item, double offset);
+// Plays items in this order (shuffle), each from its start.
+PXScreen *PXPlayerScreenNewQueue(NSArray *items);
 
 // Music: album page and the "now playing" screen of PXMusicPlayer.
 PXScreen *PXAlbumScreenNew(PXItem *album);
@@ -38,3 +40,5 @@ PXScreen *PXPhotoScreenNew(NSArray *photos, NSInteger index);
 // or nil; commands play, pause, stop, seekTo (seconds), stepForward, stepBack.
 NSDictionary *PXVideoPlayerState(void);
 void PXVideoPlayerControl(NSString *command, double value);
+// "Découvrir" home tab: plex.tv editorial rows (online).
+PXScreen *PXDiscoverScreenNew(void);

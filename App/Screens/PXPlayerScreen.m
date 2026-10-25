@@ -29,6 +29,7 @@ static const CGSize kPreview = { 384, 216 };
 @interface PXPlayerScreen : PXScreen
 @property (nonatomic, strong) PXItem *item;
 @property (nonatomic, assign) double startOffset;
+@property (nonatomic, copy) NSArray *queue;     // PXItem to play after this one (shuffle), else next episode
 - (BOOL)pxPlaying;
 @end
 
@@ -726,6 +727,12 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     PXLog(@"player: end of '%@'", self.item.title);
     [self report:@"stopped"];
     [[PXPlex shared] setWatched:YES item:self.item.raw];
+    if (self.queue) {
+        NSUInteger i = [self.queue indexOfObjectPassingTest:^BOOL(PXItem *e, NSUInteger n, BOOL *stop) { return [e.ratingKey isEqual:self.item.ratingKey]; }];
+        if (i == NSNotFound || i + 1 >= self.queue.count) { [self pop]; return; }
+        [self offerNext:self.queue[i + 1]];
+        return;
+    }
     if (self.item.type != PXItemEpisode || !self.item.grandparentRatingKey) { [self pop]; return; }
     __weak PXPlayerScreen *weak = self;
     NSString *path = [NSString stringWithFormat:@"/library/metadata/%@/allLeaves", self.item.grandparentRatingKey];
@@ -902,6 +909,15 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 }
 
 @end
+
+PXScreen *PXPlayerScreenNewQueue(NSArray *items) {
+    PXPlayerScreen *s = [PXPlayerScreen new];
+    s.item = items.firstObject;
+    s.queue = items;
+    s.startOffset = 0;
+    [s setup];
+    return s;
+}
 
 PXScreen *PXPlayerScreenNew(PXItem *item, double offset) {
     PXPlayerScreen *s = [PXPlayerScreen new];

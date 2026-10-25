@@ -187,3 +187,12 @@
 "Dans ma liste" = "On Watchlist";
 "Ajouter à ma liste" = "Add to Watchlist";
 "Ailleurs sur Plex" = "More on Plex";
+
+/* Rating */
+"Noter" = "Rate";
+"Ma note" = "My Rating";
+"Retirer la note" = "Remove Rating";
+
+/* Discover */
+"Découvrir" = "Discover";
+"Rien à découvrir pour le moment." = "Nothing to discover right now.";

@@ -163,6 +163,9 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         [b addObject:[PXButton icon:PXIconSearch title:PXLF(@"Sources (%lu)", (unsigned long)_locations.count + 1) action:^{ [weak pickLocation]; }]];
     [b addObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Vu") : PXL(@"Marquer vu") action:^{ [weak toggleWatched]; }]];
     if (watch) [b addObject:watch];
+    double rating = [it.raw[@"userRating"] doubleValue];   // 0-10
+    NSString *stars = rating > 0 ? [@"" stringByPaddingToLength:(NSUInteger)lround(rating / 2) withString:@"★" startingAtIndex:0] : PXL(@"Noter");
+    [b addObject:[PXButton icon:PXIconStar title:stars action:^{ [weak pickRating]; }]];
     NSInteger keep = _buttons.focusIndex;
     _buttons.buttons = b;
     _buttons.focusIndex = keep;
@@ -208,6 +211,31 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
 }
 
 #pragma mark - Data / actions
+
+// Personal rating (1-5 stars, stored by the server as 2-10).
+- (void)pickRating {
+    __weak PXDetailScreen *weak = self;
+    NSMutableArray *rows = [NSMutableArray array];
+    double current = [self.item.raw[@"userRating"] doubleValue];
+    for (NSInteger n = 5; n >= 1; n--) {
+        PXListRow *r = [PXListRow title:[@"" stringByPaddingToLength:n withString:@"★" startingAtIndex:0] value:@"" action:^{ [weak rate:n * 2]; }];
+        r.checked = lround(current / 2) == n;
+        [rows addObject:r];
+    }
+    if (current > 0) [rows addObject:[PXListRow title:PXL(@"Retirer la note") value:@"" action:^{ [weak rate:-1]; }]];
+    [self showOverlay:PXL(@"Ma note") rows:rows];
+}
+
+- (void)rate:(NSInteger)rating {
+    [self closeOverlay];
+    PXItem *it = self.item;
+    NSString *path = [NSString stringWithFormat:@"/:/rate?key=%@&identifier=com.plexapp.plugins.library&rating=%ld", it.ratingKey, (long)rating];
+    if ([it.raw isKindOfClass:[NSMutableDictionary class]]) {
+        if (rating > 0) ((NSMutableDictionary *)it.raw)[@"userRating"] = @(rating); else [(NSMutableDictionary *)it.raw removeObjectForKey:@"userRating"];
+    }
+    [it.server put:path done:nil];
+    [self buildButtons];
+}
 
 - (void)toggleWatchlist {
     BOOL on = ![[PXPlex shared] isWatchlisted:self.item.guid];
