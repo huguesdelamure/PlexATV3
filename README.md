@@ -73,42 +73,45 @@ music, photos, casting from the phone, Live TV…
 
 - An Apple TV 3 on software 7.x, jailbroken, with an appliance loader for
   third-party `.frappliance` bundles (beigelist), and SSH access.
-- A Mac with:
-  - a current Xcode (its clang compiles armv7 fine);
-  - from the Xcode 6.4 dmg: `iPhoneOS8.4.sdk` and the toolchain's
-    `usr/bin/ld`, copied to `../toolchain/iPhoneOS8.4.sdk` and
-    `../toolchain/bin/ld64-242`. Recent linkers produce armv7 binaries that
-    crash in the iOS 8 dyld. ld64-242 runs under Rosetta. Override the
-    location with `make TOOLCHAIN=/path`;
-  - `ldid` (Homebrew).
 - A Plex Media Server, ideally able to transcode (see above).
 
-## Install a release
+## Install
 
-Download `PlexATV3-<version>.tar.gz` from the
-[Releases](https://github.com/huguesdelamure/PlexATV3/releases) page, then:
+Each [release](https://github.com/huguesdelamure/PlexATV3/releases) comes
+with the app already built: no Mac or Xcode needed. Download
+`PlexATV3-<version>.tar.gz`, then:
 
 ```sh
 scp PlexATV3-<version>.tar.gz root@<apple-tv>:/tmp/
 ssh root@<apple-tv> 'cd /Applications/AppleTV.app/Appliances && rm -rf PlexATV3.frappliance && tar -xzf /tmp/PlexATV3-<version>.tar.gz && chown -R root:wheel PlexATV3.frappliance && killall AppleTV'
 ```
 
-## Build and install from source
+The app appears on the home screen as "Plex". On first launch it shows a
+code to enter at plex.tv/link, then the list of your servers.
+
+Update: same commands with the new archive. Uninstall:
+
+```sh
+ssh root@<apple-tv> 'rm -rf /Applications/AppleTV.app/Appliances/PlexATV3.frappliance; killall AppleTV'
+```
+
+## Build from source
+
+Only needed to modify the app. You need a Mac with:
+
+- a current Xcode (its clang compiles armv7 fine);
+- from the Xcode 6.4 dmg: `iPhoneOS8.4.sdk` and the toolchain's
+  `usr/bin/ld`, copied to `../toolchain/iPhoneOS8.4.sdk` and
+  `../toolchain/bin/ld64-242`. Recent linkers produce armv7 binaries that
+  crash in the iOS 8 dyld. ld64-242 runs under Rosetta. Override the
+  location with `make TOOLCHAIN=/path`;
+- `ldid` (Homebrew).
 
 ```sh
 make RELEASE=1                        # release build (make alone: debug build)
 echo "ATV_HOST=192.168.1.20" > .env   # Apple TV address
 echo "ATV_SSH_KEY=~/.ssh/atv" >> .env # optional, key auth recommended
 make deploy                           # copies the bundle and restarts the Apple TV UI
-```
-
-The app appears on the home screen as "Plex". On first launch it shows a
-code to enter at plex.tv/link, then the list of your servers.
-
-Uninstall:
-
-```sh
-ssh root@<apple-tv> 'rm -rf /Applications/AppleTV.app/Appliances/PlexATV3.frappliance; killall AppleTV'
 ```
 
 Releases: bump `CFBundleShortVersionString` in `App/Resources/Info.plist`,
