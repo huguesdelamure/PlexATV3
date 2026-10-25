@@ -1,0 +1,139 @@
+# Feature parity with the official Plex clients
+
+Goal: everything the official Plex apps for TVs do, within what the Apple TV 3
+hardware allows (A5 SoC, 512 MB RAM, 8 GB flash, iOS 8.4, H.264-only decoder,
+HDMI 1.4 1080p).
+
+Status: **done**, **planned** (feasible, not written yet), **limited** (works
+with a hardware/OS compromise), **no** (not possible on this device).
+
+## Hardware and OS constraints
+
+| Constraint | Consequence |
+|---|---|
+| Video decoder: H.264 only, up to 1080p30 | HEVC, AV1, VC-1, MPEG-2, 4K and 1080p60 are converted by the server (Plex transcoder) to H.264 1080p. |
+| No HDR output | HDR10 / Dolby Vision sources need server tone mapping (PMS setting). |
+| Audio decode: AAC; AC-3 stalls AVPlayer on this device (measured) | Everything else (AC-3, E-AC-3, DTS, TrueHD, FLAC 5.1) is converted to AAC by the server. No passthrough, no Atmos. |
+| Bitmap subtitles (PGS, VobSub) and styled ASS | Burned into the video by the server; text subtitles (SRT, WebVTT) delivered as text. |
+| iOS 8 TLS stack (no TLS 1.3, old cipher suites) | plex.tv fails, clients.plex.tv and *.plex.direct work. Online services (Discover, watchlist, free movies, Live TV EPG) may need an embedded TLS library. |
+| 512 MB RAM, A5 CPU | Images decoded off the main thread at display size, cell recycling, cached text rendering. |
+| 8 GB flash, mostly system | Offline downloads only for small files, if at all. |
+| HDMI system volume fixed | Volume = per-player gain (AVPlayer.volume), measured working. |
+
+## Matrix
+
+### Account and servers
+
+| Feature | Status |
+|---|---|
+| plex.tv sign-in with a PIN (plex.tv/link) | done |
+| Server discovery (resources), remote access (plex.direct HTTPS, relay), automatic reconnection | done |
+| Several servers at once: libraries of every server, merged home | done (servers chosen at first launch, changeable in Settings) |
+| Server picker / preferred server | done |
+| Plex Home users: switch user, PIN, managed users and parental restrictions | planned |
+| Sign out | done |
+
+### Browsing
+
+| Feature | Status |
+|---|---|
+| Home hubs (continue watching, on deck, recently added per library) | done |
+| Movie and TV libraries: grid, sort and filters | done (5 filters) |
+| Advanced filters (genre, year, resolution, unwatched, collections, labels) | planned |
+| Other videos / personal media libraries | done (16:9 cards) |
+| Movie page: ratings, cast, crew, similar titles, tech badges | done |
+| Show / season / episode pages | done |
+| Collections | planned |
+| Playlists (video and audio) | planned |
+| Extras: trailers, behind the scenes, deleted scenes | planned |
+| Actor / director pages (filmography in the library) | planned |
+| Mark watched / unwatched, rating | done (watched), rating planned |
+| Music libraries: artists, albums, tracks | planned |
+| Photo libraries and slideshows | planned |
+| Top Shelf on the Apple TV home | done |
+
+### Search
+
+| Feature | Status |
+|---|---|
+| Search by type, suggestions before typing | done |
+| Unified search across servers | done |
+| Search in online content (Discover) | limited (TLS, see above) |
+| Voice search | no (no microphone on the remote) |
+
+### Playback
+
+| Feature | Status |
+|---|---|
+| Direct play H.264/AAC, server conversion for everything else | done |
+| Resume, progress and watched sync, timeline reports | done |
+| Version choice (4K / 1080p / other editions) | done |
+| Play from another server ("other locations") | done (matched by Plex GUID) |
+| Audio and subtitle track choice, preferred languages | done |
+| Subtitle search and download (OpenSubtitles through PMS) | planned |
+| Subtitle size / position / style | planned |
+| Quality setting (bitrate) | done |
+| Skip intro / credits, chapters, scrub thumbnails | done |
+| Next episode / autoplay, play queue | done (next episode), play queue planned |
+| Shuffle / play all for a show or season | planned |
+| Audio boost, night mode | limited (server-side audio normalization only) |
+| Background music / theme songs | planned |
+| Watch Together | limited (plex.tv service, TLS) |
+
+### Music
+
+| Feature | Status |
+|---|---|
+| Artist / album / track browsing, album art | planned |
+| Audio player with now playing screen, queue, shuffle, repeat | planned |
+| Gapless, lossless | limited (server converts FLAC/ALAC to AAC when needed) |
+| Lyrics (Plex Pass) | planned |
+| Radios / mixes (Sonic features, server-side) | planned |
+
+### Live TV and DVR (PMS tuner)
+
+| Feature | Status |
+|---|---|
+| Live channels (HLS from the PMS) | planned |
+| Guide (EPG) | limited (EPG from plex.tv, TLS) |
+| Recording schedule | planned |
+
+### Online content
+
+| Feature | Status |
+|---|---|
+| Watchlist, Discover, free movies and channels | limited (TLS) |
+
+### Remote control and casting
+
+| Feature | Status |
+|---|---|
+| Control from the Plex mobile app (Companion / "Cast to") | planned (GDM advertisement + player API) |
+
+### Languages and keyboards
+
+| Feature | Status |
+|---|---|
+| UI in several languages (strings files, at least French and English), following the Apple TV language, overridable in Settings | done (French, English) |
+| On-screen keyboard layouts per language (AZERTY, QWERTY, QWERTZ, accented letters), switchable | done (AZERTY, QWERTY, QWERTZ) |
+| Dates, times, durations in the user's locale | done |
+| Server metadata (summaries, genres) in the UI language (X-Plex-Language) | done (header sent); local genre translation as a fallback |
+
+### Offline
+
+| Feature | Status |
+|---|---|
+| Downloads | no (storage) |
+
+## Order of work
+
+1. ~~Multi-server: connections to every server, merged home and libraries,
+   unified search, version choice, other locations.~~ done
+2. ~~Languages and keyboards.~~ done
+3. Plex Home users.
+4. Collections, playlists, extras, actor pages, advanced filters.
+5. Music.
+6. Photos.
+7. Companion (control from a phone).
+8. Live TV / DVR.
+9. Online content, once a TLS path to plex.tv services is validated on the device.

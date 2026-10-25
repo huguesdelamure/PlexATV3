@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>PlexATV3</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.plexatv3.frontrow.appliance</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>PlexATV3</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleSignature</key>
+	<string>fnrw</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.3</string>
+	<key>CFBundleVersion</key>
+	<string>0.3</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>iPhoneOS</string>
+	</array>
+	<key>BLForceLegacyNav</key>
+	<false/>
+	<key>FRApplianceDataSourceType</key>
+	<string>All</string>
+	<key>FRApplianceName</key>
+	<string>Plex</string>
+	<key>FRAppliancePreferedOrderValue</key>
+	<integer>1</integer>
+	<key>FRHideIfNoCategories</key>
+	<false/>
+	<key>FRRemoteAppliance</key>
+	<true/>
+	<key>LSRequiresIPhoneOS</key>
+	<string>1</string>
+	<key>MinimumOSVersion</key>
+	<string>8.0</string>
+	<key>NSPrincipalClass</key>
+	<string>PXAppliance</string>
+</dict>
+</plist>
