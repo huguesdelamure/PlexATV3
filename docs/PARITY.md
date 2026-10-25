@@ -15,7 +15,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 | No HDR output | HDR10 / Dolby Vision sources need server tone mapping (PMS setting). |
 | Audio decode: AAC; AC-3 stalls AVPlayer on this device (measured) | Everything else (AC-3, E-AC-3, DTS, TrueHD, FLAC 5.1) is converted to AAC by the server. No passthrough, no Atmos. |
 | Bitmap subtitles (PGS, VobSub) and styled ASS | Burned into the video by the server; text subtitles (SRT, WebVTT) delivered as text. |
-| iOS 8 TLS stack (no TLS 1.3, old cipher suites) | plex.tv fails, clients.plex.tv and *.plex.direct work. Online services (Discover, watchlist, free movies, Live TV EPG) may need an embedded TLS library. |
+| iOS 8 TLS stack (TLS 1.2, no ChaCha20, no AES-GCM) | plex.tv only accepts AES-GCM and fails; clients.plex.tv, *.plex.direct and the online providers (discover, vod, metadata .provider.plex.tv) accept ECDHE-CBC and work (measured on the device). |
 | 512 MB RAM, A5 CPU | Images decoded off the main thread at display size, cell recycling, cached text rendering. |
 | 8 GB flash, mostly system | Offline downloads only for small files, if at all. |
 | HDMI system volume fixed | Volume = per-player gain (AVPlayer.volume), measured working. |
@@ -58,7 +58,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 |---|---|
 | Search by type, suggestions before typing | done |
 | Unified search across servers | done |
-| Search in online content (Discover) | limited (TLS, see above) |
+| Search in online content (Discover) | planned (discover.provider.plex.tv reachable) |
 | Voice search | no (no microphone on the remote) |
 
 ### Playback
@@ -102,7 +102,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 
 | Feature | Status |
 |---|---|
-| Watchlist, Discover, free movies and channels | limited (TLS) |
+| Watchlist, Discover, free movies and channels | planned (providers reachable from the device) |
 
 ### Remote control and casting
 
@@ -136,4 +136,4 @@ with a hardware/OS compromise), **no** (not possible on this device).
 6. ~~Photos.~~ done
 7. ~~Companion (control from a phone).~~ done
 8. Live TV / DVR.
-9. Online content, once a TLS path to plex.tv services is validated on the device.
+9. Online content (watchlist, Discover, free movies): the provider hosts work on the device.
