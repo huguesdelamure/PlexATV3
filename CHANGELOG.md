@@ -5,6 +5,12 @@ changes that break settings or installation, minor for features, patch for
 fixes. Each release is a tag `vX.Y.Z` with a build attached on the GitHub
 Releases page (see `scripts/release.sh`).
 
+## [Unreleased]
+
+- Plex Home profiles: "Who's watching?" picker with PIN pad, at launch
+  (Settings > Profile at Launch) or from Settings > User; each profile keeps
+  its own servers and home selection.
+
 ## [1.0.0]
 
 First public release.

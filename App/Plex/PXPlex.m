@@ -7,6 +7,7 @@
 #import <Security/Security.h>
 
 NSString *const PXSelectedServersDidChange = @"PXSelectedServersDidChange";
+NSString *const PXHomeUserDidChange = @"PXHomeUserDidChange";
 static NSString *const kPlexTV = @"https://clients.plex.tv";
 static NSString *const kProduct = @"PlexATV";
 // App version, from Info.plist (CFBundleShortVersionString).
@@ -168,7 +169,11 @@ static NSArray *extraAnchors(void) {
     [self request:@"GET" url:url token:nil timeout:20 done:done];
 }
 
-- (void)saveAuthToken:(NSString *)token { PXSettingSet(@"authToken", token); [self refreshAccountProfile]; }
+- (void)saveAuthToken:(NSString *)token {
+    PXSettingSet(@"authToken", token);
+    PXSettingSet(@"accountToken", token);
+    [self refreshAccountProfile];
+}
 
 - (NSDictionary *)accountProfile {
     static BOOL refreshed;
@@ -190,10 +195,79 @@ static NSArray *extraAnchors(void) {
 }
 
 - (void)signOut {
-    for (NSString *k in @[ @"authToken", @"serverId", @"serverName", @"serverURI", @"serverToken", @"serverURIs", @"resources", @"selectedServers" ])
+    for (NSString *k in @[ @"authToken", @"accountToken", @"homeUsers", @"homeUserUUID", @"profiles", @"accountProfile",
+                           @"serverId", @"serverName", @"serverURI", @"serverToken", @"serverURIs", @"resources", @"selectedServers" ])
         PXSettingSet(k, nil);
     [_servers removeAllObjects];
     _order = @[];
+}
+
+#pragma mark - Plex Home users
+
+static id plistSafe(id v);
+
+static NSString *accountToken(void) { return PXSettingGet(@"accountToken") ?: PXSettingGet(@"authToken"); }
+
+- (NSArray *)homeUsers {
+    NSArray *u = PXSettingGet(@"homeUsers");
+    return [u isKindOfClass:[NSArray class]] ? u : @[];
+}
+
+- (NSDictionary *)currentHomeUser {
+    NSString *uuid = PXSettingGet(@"homeUserUUID");
+    for (NSDictionary *u in self.homeUsers) if (uuid ? [u[@"uuid"] isEqual:uuid] : [u[@"admin"] boolValue]) return u;
+    return nil;
+}
+
+- (void)fetchHomeUsers:(PXJSONBlock)done {
+    [self request:@"GET" url:[kPlexTV stringByAppendingString:@"/api/v2/home/users"] token:accountToken() timeout:20 done:^(id json, NSError *err) {
+        NSArray *raw = [json isKindOfClass:[NSDictionary class]] ? json[@"users"] : nil;
+        NSMutableArray *users = [NSMutableArray array];
+        for (NSDictionary *u in [raw isKindOfClass:[NSArray class]] ? raw : @[]) {
+            if (![u isKindOfClass:[NSDictionary class]] || !u[@"uuid"]) continue;
+            NSMutableDictionary *c = [NSMutableDictionary dictionary];   // what the UI needs, never a token
+            for (NSString *k in @[ @"uuid", @"title", @"username", @"thumb", @"admin", @"guest", @"restricted", @"protected" ])
+                if (plistSafe(u[k])) c[k] = plistSafe(u[k]);
+            [users addObject:c];
+        }
+        if (raw) PXSettingSet(@"homeUsers", users);
+        PXLog(@"plex: home users %lu%@", (unsigned long)users.count, err ? [@" error " stringByAppendingString:err.localizedDescription] : @"");
+        if (done) done(raw ? users : self.homeUsers, err);
+    }];
+}
+
+- (void)switchToHomeUser:(NSDictionary *)user pin:(NSString *)pin done:(PXJSONBlock)done {
+    NSString *uuid = user[@"uuid"];
+    NSString *url = [NSString stringWithFormat:@"%@/api/v2/home/users/%@/switch%@", kPlexTV, PXEncode(uuid),
+                     pin.length ? [@"?pin=" stringByAppendingString:PXEncode(pin)] : @""];
+    [self request:@"POST" url:url token:accountToken() timeout:20 done:^(id json, NSError *err) {
+        NSString *token = [json isKindOfClass:[NSDictionary class]] ? json[@"authToken"] : nil;
+        if (![token isKindOfClass:[NSString class]] || !token.length) {
+            done(nil, err ?: [NSError errorWithDomain:@"PXPlex" code:401 userInfo:@{ NSLocalizedDescriptionKey: PXL(@"Code PIN incorrect") }]);
+            return;
+        }
+        // Keep the server choice of the profile we leave, restore the other's.
+        NSMutableDictionary *profiles = [PXSettingGet(@"profiles") mutableCopy] ?: [NSMutableDictionary dictionary];
+        NSString *old = PXSettingGet(@"homeUserUUID") ?: [self currentHomeUser][@"uuid"];
+        NSMutableDictionary *state = [NSMutableDictionary dictionary];
+        for (NSString *k in @[ @"serverId", @"selectedServers", @"resources" ]) if (PXSettingGet(k)) state[k] = PXSettingGet(k);
+        if (old) profiles[old] = state;
+        NSDictionary *next = profiles[uuid] ?: @{};
+        for (NSString *k in @[ @"serverId", @"selectedServers", @"resources" ]) PXSettingSet(k, next[k]);
+        PXSettingSet(@"profiles", profiles);
+        PXSettingSet(@"homeUserUUID", uuid);
+        PXSettingSet(@"authToken", token);
+        PXSettingSet(@"accountProfile", nil);
+        [self->_servers removeAllObjects];
+        self->_order = @[];
+        [self loadCachedServers];
+        PXLog(@"plex: switched to profile %@", user[@"title"]);
+        [self refreshAccountProfile];
+        [self fetchServers:^(NSArray *servers, NSError *e) {
+            [[NSNotificationCenter defaultCenter] postNotificationName:PXHomeUserDidChange object:nil];
+            done(user, e);
+        }];
+    }];
 }
 
 #pragma mark - Servers

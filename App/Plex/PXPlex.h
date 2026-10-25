@@ -21,6 +21,16 @@ typedef void (^PXJSONBlock)(id json, NSError *error);
 - (void)saveAuthToken:(NSString *)token;
 - (void)signOut;
 - (void)fetchServers:(PXJSONBlock)done;                     // json: array of server resources
+
+// --- Plex Home users (profiles). The token of the linked account is kept as
+// "accountToken"; "authToken" is the token of the active profile, used by
+// every other call. Each profile keeps its own server choice.
+- (void)fetchHomeUsers:(PXJSONBlock)done;                   // json: array of users (cached, no tokens)
+@property (nonatomic, readonly) NSArray *homeUsers;         // last known list, [] without Plex Home
+@property (nonatomic, readonly) NSDictionary *currentHomeUser;
+// pin: nil for profiles without PIN. Reloads the servers of the new profile,
+// then posts PXHomeUserDidChange.
+- (void)switchToHomeUser:(NSDictionary *)user pin:(NSString *)pin done:(PXJSONBlock)done;
 // plex.tv account profile (defaultAudioLanguage, defaultSubtitleLanguage,
 // defaultSubtitleForced, ...), cached in the settings, refreshed in the background.
 - (NSDictionary *)accountProfile;
@@ -64,3 +74,4 @@ typedef void (^PXJSONBlock)(id json, NSError *error);
 
 NSString *PXEncode(NSString *s);
 extern NSString *const PXSelectedServersDidChange;
+extern NSString *const PXHomeUserDidChange;

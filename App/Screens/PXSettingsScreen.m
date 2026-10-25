@@ -16,7 +16,6 @@
 @end
 
 static BOOL gFocusLanguage;           // set across the rebuild after a language change
-static const NSInteger kLanguageRow = 5;  // index of "Langue" in buildMain
 
 @implementation PXSettingsScreen {
     PXListLayer *_list;
@@ -24,6 +23,7 @@ static const NSInteger kLanguageRow = 5;  // index of "Langue" in buildMain
     CALayer *_infoPanel;
     NSArray *_servers;
     BOOL _pickingServer;
+    NSInteger _languageRow;   // index of "Langue" (rows depend on Plex Home)
 }
 
 - (instancetype)initEmbedded:(BOOL)embedded {
@@ -48,7 +48,7 @@ static const NSInteger kLanguageRow = 5;  // index of "Langue" in buildMain
         _info.frame = CGRectMake(30, 26, 400, 150);
         [_infoPanel addSublayer:_info];
         [self buildMain];
-        if (gFocusLanguage) { gFocusLanguage = NO; _list.focusIndex = kLanguageRow; }
+        if (gFocusLanguage) { gFocusLanguage = NO; _list.focusIndex = _languageRow; }
     }
     return self;
 }
@@ -59,7 +59,22 @@ static const NSInteger kLanguageRow = 5;  // index of "Langue" in buildMain
     __weak PXSettingsScreen *weak = self;
     int br = [PXSettingGet(@"maxBitrate") intValue] ?: 8000;
     NSString *uri = [PXPlex shared].primaryServer.uri ?: @"";
-    NSArray *rows = @[
+    NSMutableArray *rows = [NSMutableArray array];
+    // Plex Home: active profile and what happens at launch.
+    if (plex.homeUsers.count > 1) {
+        [rows addObject:[PXListRow title:PXL(@"Utilisateur") value:plex.currentHomeUser[@"title"] ?: @"" action:^{
+            [weak push:PXProfilesScreenNew(NO, ^{ [weak buildMain]; })];
+        }]];
+        BOOL ask = [PXSettingGet(@"profileAtLaunch") isEqual:@"ask"];
+        [rows addObject:[PXListRow title:PXL(@"Profil au lancement") value:ask ? PXL(@"Toujours demander") : PXL(@"Dernier profil") action:^{
+            PXSettingSet(@"profileAtLaunch", ask ? @"last" : @"ask");
+            PXSettingsScreen *me = weak;
+            NSInteger focus = me->_list.focusIndex;
+            [me buildMain];
+            me->_list.focusIndex = focus;
+        }]];
+    }
+    [rows addObjectsFromArray:@[
         [PXListRow title:PXL(@"Serveur") value:plex.serverName ?: PXL(@"aucun") action:^{ [weak pickServer]; }],
         [PXListRow title:PXL(@"Serveurs sur l'accueil") value:[NSString stringWithFormat:@"%lu", (unsigned long)plex.selectedServers.count] action:^{
             [weak push:PXServersScreenNew(^{ [weak buildMain]; })];
@@ -76,13 +91,16 @@ static const NSInteger kLanguageRow = 5;  // index of "Langue" in buildMain
         [PXListRow title:PXL(@"Sous-titres") value:PXChoiceLabel(PXSubModeChoices(), PXSettingGet(@"subMode") ?: @"account") action:^{
             [weak cycle:@"subMode" choices:PXSubModeChoices()];
         }],
+    ]];
+    _languageRow = rows.count;
+    [rows addObjectsFromArray:@[
         [PXListRow title:PXL(@"Langue") value:[self languageLabel] action:^{ [weak nextLanguage]; }],
         [PXListRow title:PXL(@"Clavier") value:[self keyboardLabel] action:^{ [weak nextKeyboard]; }],
         [PXListRow title:PXL(@"Se déconnecter de plex.tv") value:@"" action:^{
             [[PXPlex shared] signOut];
             [weak pop];
         }],
-    ];
+    ]];
     _list.rows = rows;
     NSString *conn = @"-";
     if (uri.length) {

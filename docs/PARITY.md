@@ -30,7 +30,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 | Server discovery (resources), remote access (plex.direct HTTPS, relay), automatic reconnection | done |
 | Several servers at once: libraries of every server, merged home | done (servers chosen at first launch, changeable in Settings) |
 | Server picker / preferred server | done |
-| Plex Home users: switch user, PIN, managed users and parental restrictions | planned |
+| Plex Home users: switch user, PIN, managed users and parental restrictions | done (picker at launch or last profile, set in Settings; restrictions applied by the server) |
 | Sign out | done |
 
 ### Browsing
@@ -130,7 +130,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 1. ~~Multi-server: connections to every server, merged home and libraries,
    unified search, version choice, other locations.~~ done
 2. ~~Languages and keyboards.~~ done
-3. Plex Home users.
+3. ~~Plex Home users.~~ done
 4. Collections, playlists, extras, actor pages, advanced filters.
 5. Music.
 6. Photos.

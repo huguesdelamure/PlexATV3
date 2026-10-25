@@ -3,6 +3,7 @@
 // "Continue watching" uses 16:9 cards, other hubs use posters.
 
 #import "PXRouter.h"
+#import "PXSettings.h"
 #import "PXServer.h"
 #import "PXUI.h"
 #import "PXShelfLayer.h"
@@ -19,6 +20,7 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
 // server (opened from the "Serveurs" tab): its hubs and libraries only.
 @property (nonatomic, strong) PXServer *server;
 @property (nonatomic) BOOL opensSettings;
+@property (nonatomic) BOOL skipsProfilePicker;
 @end
 
 @implementation PXHomeScreen {
@@ -43,7 +45,7 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
     NSMutableArray *_shelves;
     NSInteger _shelfIndex;
     CATextLayer *_status;
-    BOOL _loaded, _loading, _askedLink, _askedServers, _fetchedServers, _reloadPending;
+    BOOL _loaded, _loading, _askedLink, _askedServers, _fetchedServers, _reloadPending, _askedProfile;
     dispatch_source_t _clockTimer;
     NSString *_tabsSignature;
 }
@@ -54,6 +56,15 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
         __weak PXHomeScreen *weakSelf = self;
         [[NSNotificationCenter defaultCenter] addObserverForName:PXSelectedServersDidChange object:nil queue:[NSOperationQueue mainQueue]
                                                       usingBlock:^(NSNotification *n) { if (!weakSelf.server) [weakSelf reloadAll]; }];
+        // Another profile: its own servers and selection, everything reloads.
+        [[NSNotificationCenter defaultCenter] addObserverForName:PXHomeUserDidChange object:nil queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *n) {
+            PXHomeScreen *me = weakSelf;
+            if (!me || me.server) return;
+            me->_askedServers = NO;
+            me->_tabsSignature = nil;
+            [me reloadAll];
+        }];
         _ambient = [[PXAmbientLayer alloc] initWithFrame:self.layer.bounds style:PXAmbientHome];
         [self.layer addSublayer:_ambient];
 
@@ -400,6 +411,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
         }
         return;
     }
+    if ([self askProfileIfNeeded]) return;
     if ([self askServersIfNeeded]) return;
     [self reload];
     // Fresh server list from plex.tv once per session (new shares, presence):
@@ -413,6 +425,19 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
             if (![me askServersIfNeeded]) [me reload];
         }];
     }
+}
+
+// Plex Home: profile picker once per app opening when Réglages ask for it;
+// the list of profiles is refreshed in the background for the next time.
+- (BOOL)askProfileIfNeeded {
+    if (self.server || _askedProfile || self.skipsProfilePicker || !self.host) return NO;
+    _askedProfile = YES;
+    PXPlex *plex = [PXPlex shared];
+    [plex fetchHomeUsers:nil];
+    BOOL ask = [PXSettingGet(@"profileAtLaunch") isEqual:@"ask"];
+    if (!ask || plex.homeUsers.count < 2) return NO;
+    [self push:PXProfilesScreenNew(YES, nil)];   // its pop brings didAppear back here
+    return YES;
 }
 
 // First launch with several servers: let the user choose what the home gathers.
@@ -710,6 +735,7 @@ PXScreen *PXHomeScreenNew(void) { return [PXHomeScreen new]; }
 PXScreen *PXHomeScreenOnSettings(void) {
     PXHomeScreen *h = [PXHomeScreen new];
     h.opensSettings = YES;
+    h.skipsProfilePicker = YES;   // same session: no profile picker again
     return h;
 }
 

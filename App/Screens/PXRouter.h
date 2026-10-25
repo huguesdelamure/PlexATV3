@@ -5,6 +5,8 @@
 
 PXScreen *PXHomeScreenNew(void);
 PXScreen *PXHomeScreenOnSettings(void);    // after a language change
+// Plex Home profile picker; atLaunch: Menu leaves the app (no PIN bypass).
+PXScreen *PXProfilesScreenNew(BOOL atLaunch, void (^completion)(void));
 PXScreen *PXHomeScreenForServer(PXServer *server);          // home + libraries of one server
 // Servers shown on the home (first launch, Réglages); completion after "Valider".
 PXScreen *PXServersScreenNew(void (^completion)(void));
