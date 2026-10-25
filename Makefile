@@ -8,6 +8,8 @@
 #   make              debug build (SSH dev channel enabled)
 #   make RELEASE=1    release build
 #   make deploy       copy to the Apple TV ($ATV_HOST, see scripts/atv-env.sh)
+#   make dist         clean release build + build/dist/PlexATV3-<version>.tar.gz
+#                     (version: CFBundleShortVersionString in Info.plist)
 
 TOOLCHAIN ?= $(abspath ../toolchain)
 SDK      ?= $(TOOLCHAIN)/iPhoneOS8.4.sdk
@@ -16,6 +18,8 @@ CC       := xcrun clang
 TARGET   := -target armv7-apple-ios8.0 -isysroot $(SDK)
 
 NAME     := PlexATV3
+VERSION  := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' App/Resources/Info.plist)
+DIST     := build/dist/$(NAME)-$(VERSION).tar.gz
 BUNDLE   := build/$(NAME).frappliance
 SRCS     := $(wildcard Kit/*/*.m App/*/*.m)
 HDRS     := $(wildcard Kit/*/*.h App/*/*.h)
@@ -48,7 +52,15 @@ $(BUNDLE)/$(NAME): $(OBJS) App/Resources/Info.plist
 deploy: all
 	./scripts/deploy.sh $(NAME)
 
+# Always a clean release build: objects of a debug build must not leak in.
+dist:
+	$(MAKE) clean
+	$(MAKE) RELEASE=1
+	@mkdir -p build/dist
+	COPYFILE_DISABLE=1 tar --no-xattrs -C build -czf $(DIST) $(NAME).frappliance
+	@cd build/dist && shasum -a 256 $(notdir $(DIST)) | tee $(notdir $(DIST)).sha256
+
 clean:
 	rm -rf build
 
-.PHONY: all deploy clean
+.PHONY: all deploy dist clean

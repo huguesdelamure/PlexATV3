@@ -83,7 +83,17 @@ music, photos, casting from the phone, Live TV…
   - `ldid` (Homebrew).
 - A Plex Media Server, ideally able to transcode (see above).
 
-## Build and install
+## Install a release
+
+Download `PlexATV3-<version>.tar.gz` from the
+[Releases](https://github.com/huguesdelamure/PlexATV3/releases) page, then:
+
+```sh
+scp PlexATV3-<version>.tar.gz root@<apple-tv>:/tmp/
+ssh root@<apple-tv> 'cd /Applications/AppleTV.app/Appliances && rm -rf PlexATV3.frappliance && tar -xzf /tmp/PlexATV3-<version>.tar.gz && chown -R root:wheel PlexATV3.frappliance && killall AppleTV'
+```
+
+## Build and install from source
 
 ```sh
 make RELEASE=1                        # release build (make alone: debug build)
@@ -100,6 +110,11 @@ Uninstall:
 ```sh
 ssh root@<apple-tv> 'rm -rf /Applications/AppleTV.app/Appliances/PlexATV3.frappliance; killall AppleTV'
 ```
+
+Releases: bump `CFBundleShortVersionString` in `App/Resources/Info.plist`,
+add a section to [CHANGELOG.md](CHANGELOG.md), commit, then
+`scripts/release.sh <version>` (build and checks) and
+`scripts/release.sh <version> --publish` (tag and GitHub release).
 
 ## Project layout
 

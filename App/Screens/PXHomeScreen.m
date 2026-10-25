@@ -245,6 +245,15 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     for (PXScreen *c in _children.allValues) { [c willDisappear]; [c didPop]; [c.layer removeFromSuperlayer]; }
     _children = [NSMutableDictionary dictionary];
     _shownTab = 0;
+    _tabIndex = 0;
+    if (_childFocused) { _childFocused = NO; _tabsFocused = YES; }
+    // Back on Accueil: undo what showTab: did for the previous tab.
+    PXNoAnim(^{
+        self->_shelvesLayer.opacity = 1;
+        self->_ambient.opacity = 1;
+        self->_tabsScrim.opacity = 0;
+        self->_hero.opacity = self->_shelfIndex == 0 ? 1 : 0;
+    });
     NSMutableArray *built = [NSMutableArray array];
     CGFloat x = 84;
     UIFont *f = PXFontSemi(28);

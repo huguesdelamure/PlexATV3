@@ -9,7 +9,10 @@
 NSString *const PXSelectedServersDidChange = @"PXSelectedServersDidChange";
 static NSString *const kPlexTV = @"https://clients.plex.tv";
 static NSString *const kProduct = @"PlexATV";
-static NSString *const kVersion = @"0.2";
+// App version, from Info.plist (CFBundleShortVersionString).
+static NSString *appVersion(void) {
+    return [PXKitBundle() objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"0";
+}
 
 NSString *PXEncode(NSString *s) {
     return (__bridge_transfer NSString *)CFURLCreateStringByAddingPercentEscapes(
@@ -98,7 +101,7 @@ static NSArray *extraAnchors(void) {
 - (NSDictionary *)plexHeaders {
     return @{ @"X-Plex-Client-Identifier": PXClientId(),
               @"X-Plex-Product": kProduct,
-              @"X-Plex-Version": kVersion,
+              @"X-Plex-Version": appVersion(),
               @"X-Plex-Platform": @"iOS",
               @"X-Plex-Platform-Version": @"8.4",
               @"X-Plex-Device": @"Apple TV",
