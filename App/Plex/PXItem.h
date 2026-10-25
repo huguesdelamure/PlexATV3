@@ -4,7 +4,8 @@
 @class PXServer;
 
 typedef NS_ENUM(NSInteger, PXItemType) { PXItemOther, PXItemMovie, PXItemShow, PXItemSeason, PXItemEpisode,
-    PXItemCollection, PXItemPlaylist, PXItemClip, PXItemArtist, PXItemAlbum, PXItemTrack };
+    PXItemCollection, PXItemPlaylist, PXItemClip, PXItemArtist, PXItemAlbum, PXItemTrack,
+    PXItemPhoto, PXItemPhotoAlbum };
 
 @interface PXStream : NSObject
 @property (nonatomic, readonly) NSInteger streamID;

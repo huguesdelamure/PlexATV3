@@ -345,6 +345,9 @@ PXScreen *PXScreenForItem(PXItem *item) {
     if (item.type == PXItemArtist)
         return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/library/metadata/%@/children", item.ratingKey], item.server);
     if (item.type == PXItemAlbum) return PXAlbumScreenNew(item);
+    if (item.type == PXItemPhotoAlbum)
+        return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/library/metadata/%@/children", item.ratingKey], item.server);
+    if (item.type == PXItemPhoto) return PXPhotoScreenNew(@[ item ], 0);
     if (item.type == PXItemTrack) {
         [[PXMusicPlayer shared] playTracks:@[ item ] startAt:0 shuffle:NO];
         return PXNowPlayingScreenNew();

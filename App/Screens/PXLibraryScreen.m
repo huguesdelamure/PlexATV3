@@ -71,7 +71,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     _grid.anchorPoint = CGPointZero;
     [self.layer addSublayer:_grid];
     _square = [self.section[@"type"] isEqual:@"artist"];
-    [self setLandscape:PXSectionIsLandscape(self.section)];
+    [self setLandscape:PXSectionIsLandscape(self.section) || [self.section[@"type"] isEqual:@"photo"]];
 
     CAGradientLayer *topFade = [CAGradientLayer layer];
     topFade.frame = CGRectMake(0, 0, 1920, kTop);
@@ -106,6 +106,11 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         [filters setArray:@[ @{ @"title": PXL(@"Artistes"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=8&sort=titleSort", k] },
                              @{ @"title": PXL(@"Albums"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=9&sort=titleSort", k] },
                              @{ @"title": PXL(@"Ajouts récents"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=9&sort=addedAt:desc", k] } ]];
+    }
+    else if ([self.section[@"type"] isEqual:@"photo"]) {
+        NSString *k = self.section[@"key"];
+        [filters setArray:@[ @{ @"title": PXL(@"Albums"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all", k] },
+                             @{ @"title": PXL(@"Ajouts récents"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=13&sort=addedAt:desc", k] } ]];
     }
     else if (shows || [self.section[@"type"] isEqual:@"movie"])
         [filters addObject:@{ @"title": PXL(@"Collections"), @"path": [NSString stringWithFormat:@"/library/sections/%@/collections", self.section[@"key"]] }];
@@ -173,14 +178,14 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
             while ((NSInteger)me->_items.count < total) [me->_items addObject:[NSNull null]];
             PXSetText(me->_count, total > 1 ? PXLF(@"%ld titres", (long)total) : PXLF(@"%ld titre", (long)total));
         }
-        NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
+        NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"] ?: mc[@"Directory"]];   // photo albums may come as Directory
         // Item lists of music (artist's albums, playlists of tracks): square covers.
         PXItemType t0 = [(PXItem *)items.firstObject type];
         if (page == 0 && me.basePath && !me->_square && (t0 == PXItemArtist || t0 == PXItemAlbum || t0 == PXItemTrack)) {
             me->_square = YES;
             [me setLandscape:NO];
         }
-        if (page == 0 && me->_filterIndex == 0 && !me->_square) {
+        if (page == 0 && me->_filterIndex == 0 && !me->_square && ![me.section[@"type"] isEqual:@"photo"]) {
             BOOL landscape = PXItemsPreferLandscape(items);
             if (!me.basePath) PXRememberSectionLayout(me.section, landscape);
             if (landscape != me->_landscape) {
@@ -310,6 +315,13 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     }
 }
 
+// Viewer over the photos of this grid that are loaded (albums skipped).
+- (void)openPhoto:(PXItem *)photo {
+    NSMutableArray *photos = [NSMutableArray array];
+    for (id it in _items) if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemPhoto) [photos addObject:it];
+    [self push:PXPhotoScreenNew(photos, MAX(0, (NSInteger)[photos indexOfObject:photo]))];
+}
+
 - (BOOL)handleKey:(PXKey)key {
     if (_chipsFocused) {
         switch (key) {
@@ -333,6 +345,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         case PXKeyRewind: [self moveTo:MAX(_focus - _cols * 3, 0)]; return YES;
         case PXKeySelect: {
             id it = _focus < (NSInteger)_items.count ? _items[_focus] : nil;
+            if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemPhoto) { [self openPhoto:it]; return YES; }
             if ([it isKindOfClass:[PXItem class]]) [self push:PXScreenForItem(it)];
             return YES;
         }

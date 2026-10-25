@@ -32,3 +32,5 @@ PXScreen *PXPlayerScreenNew(PXItem *item, double offset);
 // Music: album page and the "now playing" screen of PXMusicPlayer.
 PXScreen *PXAlbumScreenNew(PXItem *album);
 PXScreen *PXNowPlayingScreenNew(void);
+// Full-screen photos with slideshow.
+PXScreen *PXPhotoScreenNew(NSArray *photos, NSInteger index);

@@ -517,7 +517,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 - (NSArray *)videoSections:(NSDictionary *)mc {
     NSMutableArray *sections = [NSMutableArray array];
     for (NSDictionary *d in mc[@"Directory"])
-        if ([@[ @"movie", @"show", @"artist" ] containsObject:d[@"type"] ?: @""]) [sections addObject:d];
+        if ([@[ @"movie", @"show", @"artist", @"photo" ] containsObject:d[@"type"] ?: @""]) [sections addObject:d];
     return sections;
 }
 

@@ -16,6 +16,7 @@ Releases page (see `scripts/release.sh`).
 - Music: library tabs (artists, albums, recently added), album pages, now
   playing screen with queue, shuffle, repeat and volume; FLAC and other
   formats converted to AAC by the server.
+- Photos: library tabs, albums, full-screen viewer with slideshow.
 - Fixes: "forced" shown only for subtitles; keyboard layout applies without
   reopening the app.
 
