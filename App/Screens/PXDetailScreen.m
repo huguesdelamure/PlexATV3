@@ -368,11 +368,51 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
 
 - (void)pickSubtitle {
     __weak PXDetailScreen *weak = self;
-    [self showOverlay:PXL(@"Sous-titres") rows:PXSubtitleRows(self.item, ^(NSInteger sid) {
+    NSMutableArray *rows = [PXSubtitleRows(self.item, ^(NSInteger sid) {
         [weak closeOverlay];
         PXMarkTracksManual(weak.item.ratingKey);
         [weak.item.server selectStreamsForPart:weak.item.part audio:-1 subtitle:sid done:^(id j, NSError *e) { [weak reloadItem]; }];
-    })];
+    }) mutableCopy];
+    [rows addObject:[PXListRow title:PXL(@"Rechercher des sous-titres…") value:@"" action:^{ [weak searchSubtitles]; }]];
+    [self showOverlay:PXL(@"Sous-titres") rows:rows];
+}
+
+// Subtitles found by the server's agents (OpenSubtitles…), in the account's
+// subtitle language, else the interface language.
+- (void)searchSubtitles {
+    [self closeOverlay];
+    PXItem *it = self.item;
+    NSString *lang = [PXPlex shared].accountProfile[@"defaultSubtitleLanguage"];
+    if (![lang isKindOfClass:[NSString class]] || !lang.length) lang = PXLanguage();
+    __weak PXDetailScreen *weak = self;
+    [self showOverlay:PXL(@"Sous-titres") rows:@[ [PXListRow title:PXL(@"Recherche…") value:@"" action:nil] ]];
+    NSString *path = [NSString stringWithFormat:@"/library/metadata/%@/subtitles?language=%@&hearingImpaired=0&forced=0", it.ratingKey, lang];
+    [it.server get:path done:^(NSDictionary *mc, NSError *err) {
+        PXDetailScreen *me = weak;
+        if (!me) return;
+        [me closeOverlay];
+        NSMutableArray *rows = [NSMutableArray array];
+        NSArray *found = [mc[@"Stream"] isKindOfClass:[NSArray class]] ? mc[@"Stream"] : @[];
+        // Best score first.
+        found = [found sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) { return [@([b[@"score"] intValue]) compare:@([a[@"score"] intValue])]; }];
+        for (NSDictionary *st in found) {
+            NSString *key = st[@"key"];
+            if (!key) continue;
+            NSString *title = [NSString stringWithFormat:@"%@ · %@", st[@"displayTitle"] ?: lang, st[@"providerTitle"] ?: @""];
+            NSString *q = [NSString stringWithFormat:@"/library/metadata/%@/subtitles?key=%@&codec=%@&language=%@&hearingImpaired=0&forced=0&providerTitle=%@",
+                           it.ratingKey, PXEncode(key), st[@"codec"] ?: @"srt", lang, PXEncode(st[@"providerTitle"] ?: @"")];
+            [rows addObject:[PXListRow title:title value:[st[@"codec"] uppercaseString] ?: @"" action:^{
+                PXDetailScreen *me2 = weak;
+                [me2 closeOverlay];
+                [it.server put:q done:^(id j, NSError *e) {
+                    // The server downloads it, then lists it with the other subtitles.
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [weak reloadItem]; });
+                }];
+            }]];
+        }
+        if (!rows.count) [rows addObject:[PXListRow title:err ? err.localizedDescription : PXL(@"Aucun sous-titre trouvé") value:@"" action:nil]];
+        [me showOverlay:PXL(@"Sous-titres trouvés") rows:rows];
+    }];
 }
 
 - (void)toggleWatched {

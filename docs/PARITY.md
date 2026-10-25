@@ -39,7 +39,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 |---|---|
 | Home hubs (continue watching, on deck, recently added per library) | done |
 | Movie and TV libraries: grid, sort and filters | done (5 filters) |
-| Advanced filters (genre, year, resolution, unwatched, collections, labels) | planned |
+| Advanced filters (genre, year, resolution, unwatched, collections, labels) | done (genre, decade, unwatched, collections) |
 | Other videos / personal media libraries | done (16:9 cards) |
 | Movie page: ratings, cast, crew, similar titles, tech badges | done |
 | Show / season / episode pages | done |
@@ -47,7 +47,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 | Playlists (video and audio) | done (video playlists tab; audio playlists open as track lists) |
 | Extras: trailers, behind the scenes, deleted scenes | done |
 | Actor / director pages (filmography in the library) | done (actors) |
-| Mark watched / unwatched, rating | done (watched), rating planned |
+| Mark watched / unwatched, rating | done |
 | Music libraries: artists, albums, tracks | done |
 | Photo libraries and slideshows | done |
 | Top Shelf on the Apple TV home | done |
@@ -70,14 +70,14 @@ with a hardware/OS compromise), **no** (not possible on this device).
 | Version choice (4K / 1080p / other editions) | done |
 | Play from another server ("other locations") | done (matched by Plex GUID) |
 | Audio and subtitle track choice, preferred languages | done |
-| Subtitle search and download (OpenSubtitles through PMS) | planned |
-| Subtitle size / position / style | planned |
+| Subtitle search and download (OpenSubtitles through PMS) | done |
+| Subtitle size / position / style | done (size, for subtitles burned by the server) |
 | Quality setting (bitrate) | done |
 | Skip intro / credits, chapters, scrub thumbnails | done |
 | Next episode / autoplay, play queue | done (next episode), play queue planned |
-| Shuffle / play all for a show or season | planned |
+| Shuffle / play all for a show or season | done (shuffle a show) |
 | Audio boost, night mode | limited (server-side audio normalization only) |
-| Background music / theme songs | planned |
+| Background music / theme songs | done |
 | Watch Together | limited (plex.tv service, TLS) |
 
 ### Music
@@ -104,7 +104,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 |---|---|
 | Watchlist | done |
 | Free movies and shows (Plex VOD) | no on iOS 8: fMP4 HLS segments (iOS 10+) on a CDN that refuses the iOS 8 cipher suites; would need a remux relay |
-| Discover hubs (trending, coming soon) | planned |
+| Discover hubs (trending, coming soon) | done ("Discover" tab) |
 
 ### Remote control and casting
 

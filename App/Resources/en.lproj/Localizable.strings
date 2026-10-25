@@ -196,3 +196,9 @@
 /* Discover */
 "Découvrir" = "Discover";
 "Rien à découvrir pour le moment." = "Nothing to discover right now.";
+
+/* Subtitle search */
+"Rechercher des sous-titres…" = "Search for Subtitles…";
+"Recherche…" = "Searching…";
+"Aucun sous-titre trouvé" = "No Subtitles Found";
+"Sous-titres trouvés" = "Subtitles Found";
