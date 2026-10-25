@@ -6,6 +6,7 @@
 // Opened from a show or directly from a season (preselects it).
 
 #import "PXRouter.h"
+#import "PXMusicPlayer.h"
 #import "PXServer.h"
 #import "PXBackRow.h"
 #import "PXUI.h"
@@ -341,6 +342,13 @@ PXScreen *PXScreenForItem(PXItem *item) {
     if (item.type == PXItemPlaylist)
         return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/playlists/%@/items", item.ratingKey], item.server);
     if (item.type == PXItemClip) return PXPlayerScreenNew(item, 0);   // trailers and other extras play directly
+    if (item.type == PXItemArtist)
+        return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/library/metadata/%@/children", item.ratingKey], item.server);
+    if (item.type == PXItemAlbum) return PXAlbumScreenNew(item);
+    if (item.type == PXItemTrack) {
+        [[PXMusicPlayer shared] playTracks:@[ item ] startAt:0 shuffle:NO];
+        return PXNowPlayingScreenNew();
+    }
     if (item.type == PXItemShow || item.type == PXItemSeason) {
         PXShowScreen *s = [PXShowScreen new];
         s.showKey = item.type == PXItemShow ? item.ratingKey : item.parentRatingKey;

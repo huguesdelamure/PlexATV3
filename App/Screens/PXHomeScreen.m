@@ -3,6 +3,7 @@
 // "Continue watching" uses 16:9 cards, other hubs use posters.
 
 #import "PXRouter.h"
+#import "PXMusicPlayer.h"
 #import "PXSettings.h"
 #import "PXServer.h"
 #import "PXUI.h"
@@ -516,7 +517,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 - (NSArray *)videoSections:(NSDictionary *)mc {
     NSMutableArray *sections = [NSMutableArray array];
     for (NSDictionary *d in mc[@"Directory"])
-        if ([@[ @"movie", @"show" ] containsObject:d[@"type"] ?: @""]) [sections addObject:d];
+        if ([@[ @"movie", @"show", @"artist" ] containsObject:d[@"type"] ?: @""]) [sections addObject:d];
     return sections;
 }
 
@@ -739,6 +740,8 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 }
 
 - (void)didPop {
+    // The main home leaves the stack when the app is left: so does the music.
+    if (!self.server) [[PXMusicPlayer shared] stop];
     for (PXScreen *c in _children.allValues) [c didPop];
     if (_clockTimer) dispatch_source_cancel(_clockTimer);
     _clockTimer = nil;

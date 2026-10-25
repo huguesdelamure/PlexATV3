@@ -13,6 +13,9 @@ Releases page (see `scripts/release.sh`).
 - Collections (library chip), video playlists (home tab), extras row on
   movie pages (trailers, behind the scenes), actor filmographies from the
   cast row.
+- Music: library tabs (artists, albums, recently added), album pages, now
+  playing screen with queue, shuffle, repeat and volume; FLAC and other
+  formats converted to AAC by the server.
 - Fixes: "forced" shown only for subtitles; keyboard layout applies without
   reopening the app.
 

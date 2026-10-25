@@ -39,6 +39,9 @@
 - (void)stopTranscode:(NSString *)session;
 - (void)setWatched:(BOOL)watched item:(NSDictionary *)metadata;
 - (void)selectStreamsForPart:(NSDictionary *)part audio:(NSInteger)audioID subtitle:(NSInteger)subtitleID done:(PXJSONBlock)done;
+// Music: json {url, directPlay, session (server conversion)}.
+- (void)prepareAudio:(NSDictionary *)track done:(PXJSONBlock)done;
+- (void)stopAudioTranscode:(NSString *)session;
 - (NSString *)plexQuery;   // identification + token query string (AVPlayer URLs)
 
 @end

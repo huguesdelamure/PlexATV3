@@ -145,3 +145,20 @@
 "Collections" = "Collections";
 "Listes de lecture" = "Playlists";
 "Bonus" = "Extras";
+
+/* Music */
+"Artistes" = "Artists";
+"Albums" = "Albums";
+"Aléatoire" = "Shuffle";
+"Arrêter la lecture" = "Stop Playback";
+"Aucun titre" = "No Tracks";
+"Ce titre" = "This Track";
+"En pause" = "Paused";
+"Non" = "No";
+"Oui" = "Yes";
+"Répéter" = "Repeat";
+"Répéter le titre" = "Repeat Track";
+"Répéter tout" = "Repeat All";
+"Tout" = "All";
+"Tout lire" = "Play All";
+"À suivre : %@" = "Up next: %@";

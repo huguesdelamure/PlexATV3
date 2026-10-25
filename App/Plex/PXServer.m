@@ -260,6 +260,55 @@ static BOOL canDirectPlay(NSDictionary *media) {
     }];
 }
 
+#pragma mark - Music
+
+// Direct play for what AVPlayer decodes (MP3, AAC, ALAC); anything else
+// (FLAC, Opus, Vorbis, WMA…) is converted by the server to AAC over HLS.
+- (void)prepareAudio:(NSDictionary *)track done:(PXJSONBlock)done {
+    if (!_uri) {
+        __weak PXServer *weak = self;
+        [self connect:^(id json, NSError *err) {
+            if (err) { done(nil, err); return; }
+            [weak prepareAudio:track done:done];
+        }];
+        return;
+    }
+    PXItem *it = [PXItem itemWithJSON:track];
+    NSString *codec = [it.media[@"audioCodec"] lowercaseString] ?: @"";
+    NSString *key = it.part[@"key"];
+    if (key && [@[ @"mp3", @"aac", @"alac" ] containsObject:codec]) {
+        NSString *u = [NSString stringWithFormat:@"%@%@?%@", _uri, key, [self plexQuery]];
+        done(@{ @"url": [NSURL URLWithString:u], @"directPlay": @YES }, nil);
+        return;
+    }
+    NSString *session = [[NSUUID UUID] UUIDString].lowercaseString;
+    NSString *profile = @"add-transcode-target(type=musicProfile&context=streaming&protocol=hls&container=mpegts&audioCodec=aac&replace=true)";
+    NSString *query = [NSString stringWithFormat:
+        @"path=%@&mediaIndex=0&partIndex=0&protocol=hls&directPlay=0&directStream=1&musicBitrate=320"
+        @"&session=%@&X-Plex-Session-Identifier=%@&X-Plex-Client-Profile-Extra=%@",
+        PXEncode([@"/library/metadata/" stringByAppendingString:track[@"ratingKey"] ?: @""]), session, session, PXEncode(profile)];
+    NSString *base = _uri, *token = self.token;
+    [self request:@"GET" path:[@"/music/:/transcode/universal/decision?" stringByAppendingString:query] timeout:30
+          headers:@{ @"X-Plex-Session-Identifier": session } done:^(NSDictionary *json, NSError *err) {
+        NSDictionary *mc = json[@"MediaContainer"];
+        NSInteger code = [mc[@"generalDecisionCode"] integerValue];
+        if (err || code >= 2000) {
+            NSString *why = mc[@"generalDecisionText"] ?: err.localizedDescription ?: PXL(@"refus du serveur");
+            PXLog(@"music: decision failed %ld %@", (long)code, why);
+            done(nil, [NSError errorWithDomain:@"PXPlex" code:code userInfo:@{ NSLocalizedDescriptionKey: why }]);
+            return;
+        }
+        NSString *u = [NSString stringWithFormat:@"%@/music/:/transcode/universal/start.m3u8?%@&%@", base, query, [[PXPlex shared] plexQuery:token]];
+        done(@{ @"url": [NSURL URLWithString:u], @"directPlay": @NO, @"session": session }, nil);
+    }];
+}
+
+- (void)stopAudioTranscode:(NSString *)session {
+    if (!session) return;
+    NSString *path = [NSString stringWithFormat:@"/music/:/transcode/universal/stop?session=%@&X-Plex-Session-Identifier=%@", session, session];
+    [self request:@"GET" path:path timeout:10 headers:@{ @"X-Plex-Session-Identifier": session } done:nil];
+}
+
 - (void)reportTimeline:(NSDictionary *)metadata state:(NSString *)state timeMs:(long long)t {
     NSString *rk = metadata[@"ratingKey"];
     NSString *path = [NSString stringWithFormat:@"/:/timeline?ratingKey=%@&key=%@&state=%@&time=%lld&duration=%@&identifier=com.plexapp.plugins.library",

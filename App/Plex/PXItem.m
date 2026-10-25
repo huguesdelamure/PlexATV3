@@ -62,6 +62,9 @@ static NSArray *tags(id list) {
     if ([t isEqualToString:@"collection"]) return PXItemCollection;
     if ([t isEqualToString:@"playlist"]) return PXItemPlaylist;
     if ([t isEqualToString:@"clip"]) return PXItemClip;
+    if ([t isEqualToString:@"artist"]) return PXItemArtist;
+    if ([t isEqualToString:@"album"]) return PXItemAlbum;
+    if ([t isEqualToString:@"track"]) return PXItemTrack;
     return PXItemOther;
 }
 

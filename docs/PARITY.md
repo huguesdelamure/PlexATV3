@@ -43,10 +43,10 @@ with a hardware/OS compromise), **no** (not possible on this device).
 | Other videos / personal media libraries | done (16:9 cards) |
 | Movie page: ratings, cast, crew, similar titles, tech badges | done |
 | Show / season / episode pages | done |
-| Collections | planned |
-| Playlists (video and audio) | planned |
-| Extras: trailers, behind the scenes, deleted scenes | planned |
-| Actor / director pages (filmography in the library) | planned |
+| Collections | done |
+| Playlists (video and audio) | done (video playlists tab; audio playlists open as track lists) |
+| Extras: trailers, behind the scenes, deleted scenes | done |
+| Actor / director pages (filmography in the library) | done (actors) |
 | Mark watched / unwatched, rating | done (watched), rating planned |
 | Music libraries: artists, albums, tracks | planned |
 | Photo libraries and slideshows | planned |
@@ -84,8 +84,8 @@ with a hardware/OS compromise), **no** (not possible on this device).
 
 | Feature | Status |
 |---|---|
-| Artist / album / track browsing, album art | planned |
-| Audio player with now playing screen, queue, shuffle, repeat | planned |
+| Artist / album / track browsing, album art | done |
+| Audio player with now playing screen, queue, shuffle, repeat | done |
 | Gapless, lossless | limited (server converts FLAC/ALAC to AAC when needed) |
 | Lyrics (Plex Pass) | planned |
 | Radios / mixes (Sonic features, server-side) | planned |

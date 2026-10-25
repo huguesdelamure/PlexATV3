@@ -11,6 +11,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import "PXServer.h"
 #import "PXRouter.h"
+#import "PXMusicPlayer.h"
 #import "PXUI.h"
 #import "PXOverlay.h"
 #import "PXTracks.h"
@@ -84,6 +85,7 @@ static const CGSize kPreview = { 384, 216 };
 #pragma mark - Setup
 
 - (void)setup {
+    [[PXMusicPlayer shared] stop];   // one player at a time
     self.layer.backgroundColor = [UIColor blackColor].CGColor;
     _backdrop = [CALayer layer];
     _backdrop.frame = self.layer.bounds;

@@ -28,3 +28,7 @@ PXScreen *PXScreenForRatingKey(NSString *ratingKey);
 PXScreen *PXScreenForRatingKeyOnServer(NSString *ratingKey, PXServer *server);   // nil = primary
 // Starts playback of a movie/episode at offset seconds (-1 = resume point from the server).
 PXScreen *PXPlayerScreenNew(PXItem *item, double offset);
+
+// Music: album page and the "now playing" screen of PXMusicPlayer.
+PXScreen *PXAlbumScreenNew(PXItem *album);
+PXScreen *PXNowPlayingScreenNew(void);

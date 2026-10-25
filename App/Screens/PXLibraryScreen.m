@@ -47,6 +47,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     CGFloat _rowH, _left;
     NSInteger _cols;
     BOOL _landscape;
+    BOOL _square;                   // music: artists and albums
     CGSize _cellSize;
     PXArtwork _artwork;
     PXAmbientLayer *_ambient;
@@ -69,6 +70,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     _grid = [CALayer layer];
     _grid.anchorPoint = CGPointZero;
     [self.layer addSublayer:_grid];
+    _square = [self.section[@"type"] isEqual:@"artist"];
     [self setLandscape:PXSectionIsLandscape(self.section)];
 
     CAGradientLayer *topFade = [CAGradientLayer layer];
@@ -99,7 +101,13 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
                   @{ @"title": PXL(@"Mieux notés"), @"path": [all stringByAppendingString:@"sort=audienceRating:desc"] },
                   @{ @"title": shows ? PXL(@"Dernière diffusion") : PXL(@"Les plus récents"),
                      @"path": [all stringByAppendingString:shows ? @"sort=episode.originallyAvailableAt:desc" : @"sort=originallyAvailableAt:desc"] } ] mutableCopy];
-    if (shows || [self.section[@"type"] isEqual:@"movie"])
+    if (_square) {
+        NSString *k = self.section[@"key"];
+        [filters setArray:@[ @{ @"title": PXL(@"Artistes"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=8&sort=titleSort", k] },
+                             @{ @"title": PXL(@"Albums"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=9&sort=titleSort", k] },
+                             @{ @"title": PXL(@"Ajouts récents"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=9&sort=addedAt:desc", k] } ]];
+    }
+    else if (shows || [self.section[@"type"] isEqual:@"movie"])
         [filters addObject:@{ @"title": PXL(@"Collections"), @"path": [NSString stringWithFormat:@"/library/sections/%@/collections", self.section[@"key"]] }];
     if (self.basePath) [filters setArray:@[ @{ @"title": @"", @"path": self.basePath } ]];
     _filters = filters;
@@ -130,8 +138,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 
 - (void)setLandscape:(BOOL)landscape {
     _landscape = landscape;
-    _cols = landscape ? 4 : 7;
-    _cellSize = landscape ? CGSizeMake(380, 214) : CGSizeMake(200, 300);
+    _cols = landscape ? 4 : (_square ? 6 : 7);
+    _cellSize = landscape ? CGSizeMake(380, 214) : (_square ? CGSizeMake(240, 240) : CGSizeMake(200, 300));
     _artwork = landscape ? PXArtworkThumb : PXArtworkPoster;
     PXPosterLayer *probe = [[PXPosterLayer alloc] initWithImageSize:_cellSize artwork:_artwork];
     _rowH = probe.cellHeight + kGapY;
@@ -166,7 +174,13 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
             PXSetText(me->_count, total > 1 ? PXLF(@"%ld titres", (long)total) : PXLF(@"%ld titre", (long)total));
         }
         NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
-        if (page == 0 && me->_filterIndex == 0) {
+        // Item lists of music (artist's albums, playlists of tracks): square covers.
+        PXItemType t0 = [(PXItem *)items.firstObject type];
+        if (page == 0 && me.basePath && !me->_square && (t0 == PXItemArtist || t0 == PXItemAlbum || t0 == PXItemTrack)) {
+            me->_square = YES;
+            [me setLandscape:NO];
+        }
+        if (page == 0 && me->_filterIndex == 0 && !me->_square) {
             BOOL landscape = PXItemsPreferLandscape(items);
             if (!me.basePath) PXRememberSectionLayout(me.section, landscape);
             if (landscape != me->_landscape) {
