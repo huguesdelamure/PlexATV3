@@ -197,6 +197,7 @@ static NSArray *extraAnchors(void) {
 }
 
 - (void)signOut {
+    self.watchlistKeys = nil;
     for (NSString *k in @[ @"authToken", @"accountToken", @"homeUsers", @"homeUserUUID", @"profiles", @"accountProfile",
                            @"serverId", @"serverName", @"serverURI", @"serverToken", @"serverURIs", @"resources", @"selectedServers" ])
         PXSettingSet(k, nil);
@@ -245,6 +246,7 @@ static NSString *accountToken(void) { return PXSettingGet(@"accountToken") ?: PX
     [self request:@"POST" url:url token:accountToken() timeout:20 done:^(id json, NSError *err) {
         NSString *token = [json isKindOfClass:[NSDictionary class]] ? json[@"authToken"] : nil;
         if (![token isKindOfClass:[NSString class]] || !token.length) {
+            if (err.code == 401 || err.code == 403 || err.code == 422) err = nil;   // wrong PIN
             done(nil, err ?: [NSError errorWithDomain:@"PXPlex" code:401 userInfo:@{ NSLocalizedDescriptionKey: PXL(@"Code PIN incorrect") }]);
             return;
         }
@@ -258,7 +260,10 @@ static NSString *accountToken(void) { return PXSettingGet(@"accountToken") ?: PX
         for (NSString *k in @[ @"serverId", @"selectedServers", @"resources" ]) PXSettingSet(k, next[k]);
         PXSettingSet(@"profiles", profiles);
         PXSettingSet(@"homeUserUUID", uuid);
+        // Linked before profiles existed: keep the account token before replacing it.
+        if (!PXSettingGet(@"accountToken")) PXSettingSet(@"accountToken", PXSettingGet(@"authToken"));
         PXSettingSet(@"authToken", token);
+        self.watchlistKeys = nil;   // the other profile's watchlist
         PXSettingSet(@"accountProfile", nil);
         [self->_servers removeAllObjects];
         self->_order = @[];
@@ -412,8 +417,8 @@ static NSString *onlineKey(NSString *guid) {
         NSMutableArray *raw = [NSMutableArray array];
         for (NSDictionary *r in mc[@"SearchResults"])
             for (NSDictionary *x in r[@"SearchResult"]) {
+                if (![x isKindOfClass:[NSDictionary class]] || ![x[@"Metadata"] isKindOfClass:[NSDictionary class]]) continue;
                 NSMutableDictionary *m = [x[@"Metadata"] mutableCopy];
-                if (![m isKindOfClass:[NSDictionary class]]) continue;
                 m[@"_server"] = self.onlineProvider.identifier;   // nested: not tagged by get
                 [raw addObject:m];
             }

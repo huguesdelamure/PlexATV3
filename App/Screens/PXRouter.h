@@ -34,6 +34,7 @@ PXScreen *PXPlayerScreenNewQueue(NSArray *items);
 // Music: album page and the "now playing" screen of PXMusicPlayer.
 PXScreen *PXAlbumScreenNew(PXItem *album);
 PXScreen *PXNowPlayingScreenNew(void);
+BOOL PXNowPlayingIsShown(void);
 // Full-screen photos with slideshow.
 PXScreen *PXPhotoScreenNew(NSArray *photos, NSInteger index);
 // Video player remote control (Companion): state {state, time, duration, ratingKey, server}

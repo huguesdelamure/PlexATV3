@@ -17,6 +17,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     id _timeObserver;
     NSInteger _serial;           // ignores answers for a track already skipped
     double _lastReport;
+    NSInteger _failures;         // consecutive unplayable tracks
 }
 
 + (instancetype)shared {
@@ -161,6 +162,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
         if (!me || serial != me->_serial) { if (r[@"session"]) [server stopAudioTranscode:r[@"session"]]; return; }
         if (!r[@"url"]) {
             PXLog(@"music: cannot play %@: %@", track.title, err.localizedDescription);
+            if (++me->_failures >= (NSInteger)me->_queue.count) { [me stop]; return; }
             [me next];   // skip unplayable tracks
             return;
         }
@@ -180,7 +182,10 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
             PXMusicPlayer *me2 = weak;
             if (!me2 || serial != me2->_serial || pi.status != AVPlayerItemStatusFailed) return;
             PXLog(@"music: %@ failed (%@): %@", track.title, direct ? @"direct" : @"converted", pi.error.localizedDescription);
-            if (direct) [me2 startCurrentConverted:YES]; else [me2 next];
+            if (direct) { [me2 startCurrentConverted:YES]; return; }
+            // Every track of the queue failed: stop instead of looping on the server.
+            if (++me2->_failures >= (NSInteger)me2->_queue.count) { PXLog(@"music: nothing playable, stopping"); [me2 stop]; return; }
+            [me2 next];
         });
         [me changed];
     }];
@@ -188,6 +193,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 
 - (void)tick {
     if (!self.active) return;
+    if (self.elapsed > 1) _failures = 0;   // this one plays
     // Server timeline every 10 s (play count, "recently played", other clients).
     if (self.playing && self.elapsed - _lastReport >= 10) { _lastReport = self.elapsed; [self report:@"playing"]; }
     [self changed];

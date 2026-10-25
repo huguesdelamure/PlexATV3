@@ -49,6 +49,7 @@
 }
 
 - (void)loadHubs:(NSArray *)hubs {
+    if (!hubs.count) { [self showRows:@[]]; return; }
     PXServer *online = [PXPlex shared].onlineProvider;
     NSMutableArray *results = [NSMutableArray arrayWithCapacity:hubs.count];
     for (NSUInteger i = 0; i < hubs.count; i++) [results addObject:[NSNull null]];

@@ -59,6 +59,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     NSInteger _filterIndex;
     BOOL _chipsFocused;
     PXOverlay *_overlay;            // genre / decade picker
+    NSInteger _generation;          // bumped on every filter change: late pages are dropped
     NSString *_ambientKey;
 }
 
@@ -161,7 +162,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     __weak PXLibraryScreen *weak = self;
     [[[PXPlex shared] serverFor:self.section] get:[NSString stringWithFormat:@"/library/sections/%@/%@", self.section[@"key"], kind] done:^(NSDictionary *mc, NSError *err) {
         PXLibraryScreen *me = weak;
-        if (!me) return;
+        if (!me || me->_overlay) return;
         NSString *all = [NSString stringWithFormat:@"/library/sections/%@/all?sort=titleSort", me.section[@"key"]];
         NSMutableArray *rows = [NSMutableArray array];
         void (^choose)(NSString *, NSString *) = ^(NSString *title, NSString *path) {
@@ -213,10 +214,10 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     if ([_loadingPages containsObject:@(page)]) return;
     [_loadingPages addObject:@(page)];
     __weak PXLibraryScreen *weak = self;
-    NSInteger filter = _filterIndex;
+    NSInteger filter = _filterIndex, generation = _generation;
     [[[PXPlex shared] serverFor:self.section] get:[self pathForPage:page] done:^(NSDictionary *mc, NSError *err) {
         PXLibraryScreen *me = weak;
-        if (!me || me->_filterIndex != filter) return;
+        if (!me || me->_filterIndex != filter || me->_generation != generation) return;
         if (err) { [me->_loadingPages removeObject:@(page)]; PXSetText(me->_count, err.localizedDescription); return; }
         NSInteger total = [mc[@"totalSize"] integerValue] ?: [mc[@"size"] integerValue];
         if (me->_total != total) {
@@ -338,6 +339,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 - (void)applyFilter:(NSInteger)index {
     if (index == _filterIndex) return;
     _filterIndex = index;
+    _generation++;
     [self updateChips];
     // Reset the grid and reload page 0 with the new sort/filter.
     for (PXPosterLayer *c in _cells.allValues) { c.hidden = YES; c.focused = NO; [_pool addObject:c]; }
@@ -370,7 +372,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 
 - (BOOL)handleKey:(PXKey)key {
     if (_overlay) return [_overlay handleKey:key];
-    if (_chipsFocused && key == PXKeySelect && _filters[_filterIndex][@"picker"]) { [self openPicker:_filterIndex]; return YES; }
+    if (_chipsFocused && key == PXKeySelect && _filters[_filterIndex][@"picker"]) { if (!_overlay) [self openPicker:_filterIndex]; return YES; }
     if (_chipsFocused) {
         switch (key) {
             case PXKeyLeft:  [self applyFilter:MAX(0, _filterIndex - 1)]; return YES;

@@ -39,6 +39,9 @@ static CALayer *PXCover(PXItem *it, CGFloat size) {
 @interface PXNowPlayingScreen : PXScreen
 @end
 
+static __weak PXScreen *gNowPlaying;
+BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
+
 @implementation PXNowPlayingScreen {
     PXAmbientLayer *_ambient;
     CALayer *_cover;
@@ -49,6 +52,7 @@ static CALayer *PXCover(PXItem *it, CGFloat size) {
 }
 
 - (void)setup {
+    gNowPlaying = self;
     self.layer.backgroundColor = PXColorBackground();
     _ambient = [[PXAmbientLayer alloc] initWithFrame:self.layer.bounds style:PXAmbientBlurOnly];
     [self.layer addSublayer:_ambient];
@@ -230,6 +234,7 @@ PXScreen *PXNowPlayingScreenNew(void) {
 }
 
 - (void)playFrom:(NSInteger)i shuffle:(BOOL)shuffle {
+    if (!_tracks.count) return;   // still loading
     [[PXMusicPlayer shared] playTracks:_tracks startAt:i shuffle:shuffle];
     [self push:PXNowPlayingScreenNew()];
 }

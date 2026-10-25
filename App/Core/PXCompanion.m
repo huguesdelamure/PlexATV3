@@ -19,9 +19,11 @@
 #import <netinet/in.h>
 #import <arpa/inet.h>
 #import <unistd.h>
+#import <libkern/OSAtomic.h>
 
 static const uint16_t kHTTPPort = 32500, kGDMPort = 32412, kGDMHelloPort = 32413;
 static const char *kGDMGroup = "239.0.0.250";
+static BOOL isLocalAddress(struct in_addr a);
 
 @interface PXCompanionSubscriber : NSObject
 @property (nonatomic, copy) NSString *clientId, *host, *protocol;
@@ -34,6 +36,8 @@ static const char *kGDMGroup = "239.0.0.250";
 @implementation PXCompanion {
     int _httpFd, _gdmFd;
     BOOL _running;
+    NSInteger _generation;             // threads of an earlier start() exit
+    volatile int32_t _connections;     // HTTP requests being served
     NSMutableDictionary *_subscribers;   // clientId -> subscriber
     dispatch_source_t _pushTimer;
     NSInteger _commandID;
@@ -61,8 +65,11 @@ static const char *kGDMGroup = "239.0.0.250";
     _subscribers = [NSMutableDictionary dictionary];
     _httpFd = [self listenTCP:kHTTPPort];
     _gdmFd = [self listenGDM];
-    if (_httpFd >= 0) [NSThread detachNewThreadSelector:@selector(acceptLoop) toTarget:self withObject:nil];
-    if (_gdmFd >= 0) [NSThread detachNewThreadSelector:@selector(gdmLoop) toTarget:self withObject:nil];
+    _generation++;
+    // Each thread owns its fd and generation: a stop/start cycle never leaves
+    // two threads on one socket.
+    if (_httpFd >= 0) [NSThread detachNewThreadSelector:@selector(acceptLoop:) toTarget:self withObject:@[ @(_httpFd), @(_generation) ]];
+    if (_gdmFd >= 0) [NSThread detachNewThreadSelector:@selector(gdmLoop:) toTarget:self withObject:@[ @(_gdmFd), @(_generation) ]];
     [self sendGDM:@"HELLO * HTTP/1.0"];
     PXLog(@"companion: http %@, gdm %@", _httpFd >= 0 ? @"ok" : @"failed", _gdmFd >= 0 ? @"ok" : @"failed");
     _pushTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
@@ -78,8 +85,10 @@ static const char *kGDMGroup = "239.0.0.250";
     [self sendGDM:@"BYE * HTTP/1.0"];
     if (_pushTimer) dispatch_source_cancel(_pushTimer);
     _pushTimer = nil;
-    if (_httpFd >= 0) close(_httpFd);
-    if (_gdmFd >= 0) close(_gdmFd);
+    _generation++;
+    // shutdown() wakes the blocked accept()/recvfrom(), close() alone may not.
+    if (_httpFd >= 0) { shutdown(_httpFd, SHUT_RDWR); close(_httpFd); }
+    if (_gdmFd >= 0) { shutdown(_gdmFd, SHUT_RDWR); close(_gdmFd); }
     _httpFd = _gdmFd = -1;
     [_subscribers removeAllObjects];
     PXLog(@"companion: stopped");
@@ -126,26 +135,47 @@ static const char *kGDMGroup = "239.0.0.250";
     close(fd);
 }
 
-- (void)gdmLoop {
+- (void)gdmLoop:(NSArray *)args {
+    int fd = [args[0] intValue];
+    NSInteger gen = [args[1] integerValue];
     char buf[2048];
-    while (_running) {
+    while (_running && gen == _generation) {
         struct sockaddr_in from; socklen_t len = sizeof from;
-        ssize_t n = recvfrom(_gdmFd, buf, sizeof buf - 1, 0, (struct sockaddr *)&from, &len);
-        if (n <= 0) { if (!_running) break; continue; }
+        ssize_t n = recvfrom(fd, buf, sizeof buf - 1, 0, (struct sockaddr *)&from, &len);
+        if (n <= 0) { if (!_running || gen != _generation) break; usleep(100 * 1000); continue; }
+        if (!isLocalAddress(from.sin_addr)) continue;
         buf[n] = 0;
         if (strncmp(buf, "M-SEARCH", 8) != 0) continue;
         NSData *d = [[@"HTTP/1.0 200 OK\r\n" stringByAppendingString:[self gdmHeaders]] dataUsingEncoding:NSUTF8StringEncoding];
-        sendto(_gdmFd, d.bytes, d.length, 0, (struct sockaddr *)&from, len);
+        sendto(fd, d.bytes, d.length, 0, (struct sockaddr *)&from, len);
     }
 }
 
-- (void)acceptLoop {
-    while (_running) {
+// Private networks only: the protocol has no authentication.
+static BOOL isLocalAddress(struct in_addr a) {
+    uint32_t ip = ntohl(a.s_addr);
+    return (ip >> 24) == 10 || (ip >> 24) == 127 || (ip >> 20) == 0xAC1 || (ip >> 16) == 0xC0A8 || (ip >> 16) == 0xA9FE;
+}
+
+- (void)acceptLoop:(NSArray *)args {
+    int fd = [args[0] intValue];
+    NSInteger gen = [args[1] integerValue];
+    while (_running && gen == _generation) {
         struct sockaddr_in from; socklen_t len = sizeof from;
-        int c = accept(_httpFd, (struct sockaddr *)&from, &len);
-        if (c < 0) { if (!_running) break; continue; }
+        int c = accept(fd, (struct sockaddr *)&from, &len);
+        if (c < 0) { if (!_running || gen != _generation) break; usleep(100 * 1000); continue; }
+        int yes = 1;
+        setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof yes);   // a client leaving early must not kill the process
+        if (!isLocalAddress(from.sin_addr) || OSAtomicIncrement32(&_connections) > 8) {
+            if (isLocalAddress(from.sin_addr)) OSAtomicDecrement32(&_connections);
+            close(c);
+            continue;
+        }
         NSString *host = [NSString stringWithUTF8String:inet_ntoa(from.sin_addr)];
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{ [self serve:c from:host]; });
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            [self serve:c from:host];
+            OSAtomicDecrement32(&self->_connections);
+        });
     }
 }
 
@@ -168,7 +198,8 @@ static NSDictionary *queryOf(NSString *q) {
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     NSMutableData *req = [NSMutableData data];
     char buf[4096];
-    while (req.length < 65536) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];   // whole request, not per recv()
+    while (req.length < 65536 && [deadline timeIntervalSinceNow] > 0) {
         ssize_t n = recv(fd, buf, sizeof buf, 0);
         if (n <= 0) break;
         [req appendBytes:buf length:n];
@@ -194,7 +225,6 @@ static NSDictionary *queryOf(NSString *q) {
     else dispatch_sync(dispatch_get_main_queue(), ^{ body = [self handle:path params:params headers:headers host:host]; });
     NSString *head = [NSString stringWithFormat:
         @"HTTP/1.1 200 OK\r\nContent-Type: text/xml; charset=utf-8\r\nContent-Length: %lu\r\nConnection: close\r\n"
-        @"Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Expose-Headers: X-Plex-Client-Identifier\r\n"
         @"X-Plex-Client-Identifier: %@\r\n\r\n", (unsigned long)[body lengthOfBytesUsingEncoding:NSUTF8StringEncoding], PXClientId()];
     NSMutableData *out = [[head dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
     [out appendData:[body dataUsingEncoding:NSUTF8StringEncoding]];
@@ -219,6 +249,7 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
         s.protocol = p[@"protocol"] ?: @"http"; s.commandID = [p[@"commandID"] integerValue];
         _subscribers[client] = s;
         PXLog(@"companion: %@ subscribed", host);
+        _lastState = nil;   // the new subscriber gets the current state now
         [self pushTimelines];
         return ok();
     }
@@ -255,7 +286,7 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
         [server metadata:rk done:^(NSDictionary *m, NSError *err) {
             if (!m) return;
             [[PXMusicPlayer shared] playTracks:@[ [PXItem itemWithJSON:m] ] startAt:0 shuffle:NO];
-            [stack pushController:PXHostControllerForScreen(PXNowPlayingScreenNew())];
+            if (!PXNowPlayingIsShown()) [stack pushController:PXHostControllerForScreen(PXNowPlayingScreenNew())];
         }];
         return;
     }

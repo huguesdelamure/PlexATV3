@@ -124,11 +124,11 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     _cast.people = it.cast;
     _cast.hidden = !it.cast.count;
     _extras.items = it.server.provider ? @[] : it.extras;   // online extras: fMP4 HLS, not playable on iOS 8
-    _extras.hidden = !it.extras.count;
+    _extras.hidden = !_extras.items.count;
     PXNoAnim(^{
         CGFloat y = kLowerY + (it.cast.count ? self->_cast.height + 20 : 0);
         self->_extras.position = CGPointMake(0, y);
-        if (it.extras.count) y += self->_extras.height + 20;
+        if (self->_extras.items.count) y += self->_extras.height + 20;
         self->_similar.position = CGPointMake(0, y);
     });
     if (!_similarLoaded && it.type == PXItemMovie && it.media && !it.server.provider) [self loadSimilar];
@@ -156,7 +156,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lecture") action:^{ [weak play:NO]; }]];
     }
     if (it.audioStreams.count > 1) [b addObject:[PXButton icon:PXIconAudio title:PXShortTrack(it.selectedAudio) action:^{ [weak pickAudio]; }]];
-    if (it.subtitleStreams.count) [b addObject:[PXButton icon:PXIconSubtitles title:it.selectedSubtitle ? PXShortTrack(it.selectedSubtitle) : PXL(@"Sans sous-titres") action:^{ [weak pickSubtitle]; }]];
+    if (it.part) [b addObject:[PXButton icon:PXIconSubtitles title:it.selectedSubtitle ? PXShortTrack(it.selectedSubtitle) : PXL(@"Sans sous-titres") action:^{ [weak pickSubtitle]; }]];
     if (it.mediaList.count > 1)
         [b addObject:[PXButton icon:PXIconInfo title:[[PXItem labelForMedia:it.media] componentsSeparatedByString:@" · "].firstObject action:^{ [weak pickVersion]; }]];
     if (_locations.count)
@@ -386,7 +386,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     if (![lang isKindOfClass:[NSString class]] || !lang.length) lang = PXLanguage();
     __weak PXDetailScreen *weak = self;
     [self showOverlay:PXL(@"Sous-titres") rows:@[ [PXListRow title:PXL(@"Recherche…") value:@"" action:nil] ]];
-    NSString *path = [NSString stringWithFormat:@"/library/metadata/%@/subtitles?language=%@&hearingImpaired=0&forced=0", it.ratingKey, lang];
+    NSString *path = [NSString stringWithFormat:@"/library/metadata/%@/subtitles?language=%@&hearingImpaired=0&forced=0", it.ratingKey, PXEncode(lang)];
     [it.server get:path done:^(NSDictionary *mc, NSError *err) {
         PXDetailScreen *me = weak;
         if (!me) return;
@@ -394,13 +394,17 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         NSMutableArray *rows = [NSMutableArray array];
         NSArray *found = [mc[@"Stream"] isKindOfClass:[NSArray class]] ? mc[@"Stream"] : @[];
         // Best score first.
-        found = [found sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) { return [@([b[@"score"] intValue]) compare:@([a[@"score"] intValue])]; }];
+        NSMutableArray *valid = [NSMutableArray array];
+        for (id st in found) if ([st isKindOfClass:[NSDictionary class]]) [valid addObject:st];
+        found = [valid sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+            return [@([[b[@"score"] description] intValue]) compare:@([[a[@"score"] description] intValue])];
+        }];
         for (NSDictionary *st in found) {
             NSString *key = st[@"key"];
             if (!key) continue;
             NSString *title = [NSString stringWithFormat:@"%@ · %@", st[@"displayTitle"] ?: lang, st[@"providerTitle"] ?: @""];
             NSString *q = [NSString stringWithFormat:@"/library/metadata/%@/subtitles?key=%@&codec=%@&language=%@&hearingImpaired=0&forced=0&providerTitle=%@",
-                           it.ratingKey, PXEncode(key), st[@"codec"] ?: @"srt", lang, PXEncode(st[@"providerTitle"] ?: @"")];
+                           it.ratingKey, PXEncode(key), st[@"codec"] ?: @"srt", PXEncode(lang), PXEncode(st[@"providerTitle"] ?: @"")];
             [rows addObject:[PXListRow title:title value:[st[@"codec"] uppercaseString] ?: @"" action:^{
                 PXDetailScreen *me2 = weak;
                 [me2 closeOverlay];
