@@ -5,7 +5,7 @@
 # iOS 8.4 SDK and ld64-242 from Xcode 6.4 are not redistributable).
 #
 #   scripts/release.sh 1.0.0            checks + build/dist/PlexATV3-1.0.0.tar.gz
-#   scripts/release.sh 1.0.0 --publish  same, then tag v1.0.0, push the tag and
+#   scripts/release.sh 1.0.0 --publish  same, then tag v1.0.0, push main + tag and
 #                                       create the GitHub release (gh CLI)
 #
 # Checks: version = CFBundleShortVersionString in App/Resources/Info.plist,
@@ -49,5 +49,5 @@ if [ "$PUBLISH" != --publish ]; then
 fi
 
 git tag -a "v$VERSION" -m "PlexATV3 $VERSION"
-git push origin "v$VERSION"
+git push origin main "v$VERSION"
 gh release create "v$VERSION" "$ARCHIVE" "$ARCHIVE.sha256" --title "PlexATV3 $VERSION" --notes-file "$NOTES"
