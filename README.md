@@ -25,19 +25,25 @@ directly and plays video with the device's hardware H.264 decoder.
 
 **Account and servers**
 - plex.tv sign-in with a PIN (plex.tv/link).
+- Plex Home profiles with PIN pad: "Who's watching?" at launch or the last
+  profile, each profile with its own servers.
 - All the servers of your account, owned and shared, over local, remote
   (plex.direct HTTPS) and relay connections. You choose which servers feed
-  the home screen.
-- A Servers tab to browse one server at a time.
+  the home screen. A Servers tab browses one server at a time.
 
 **Browsing**
 - Home with hubs (continue watching, on deck, recently added) merged across
   servers, tvOS-style tabs and a live hero for the focused item.
-- Library grids with sort and filters. Libraries of unmatched videos (home
-  videos, recordings) switch to 16:9 cards.
+- Library grids with sort and filters (unwatched, genre, decade,
+  collections). Libraries of unmatched videos switch to 16:9 cards.
 - Movie, show, season and episode pages: ratings (IMDb, Rotten Tomatoes,
-  TMDB), cast and crew, technical badges, similar titles.
-- Unified search across servers, with suggestions before you type.
+  TMDB), your own star rating, cast with filmographies, extras (trailers,
+  behind the scenes), similar titles, theme songs.
+- Collections and video playlists.
+- Unified search across servers, with suggestions before you type, plus
+  titles found on plex.tv.
+- Watchlist and Discover (plex.tv): add titles from their page; titles you
+  have open from your servers.
 - Top Shelf on the Apple TV home screen (continue watching).
 
 **Playback**
@@ -47,17 +53,27 @@ directly and plays video with the device's hardware H.264 decoder.
 - Version choice (4K / 1080p / editions) and "play from another server"
   for titles available on several servers.
 - Resume points, watched state and timeline synced with the server.
-- Audio and subtitle track choice, preferred languages.
-- Chapters, skip intro / credits, next episode, scrub preview thumbnails.
+- Audio and subtitle choice, preferred languages, subtitle search
+  (OpenSubtitles through the server) and size.
+- Chapters, skip intro / credits, next episode, shuffle a show, scrub
+  preview thumbnails.
 - Bitrate setting, volume on the remote's up / down keys.
+
+**Music and photos**
+- Artists, albums, now playing with queue, shuffle and repeat; formats the
+  Apple TV cannot decode (FLAC…) converted by the server.
+- Photo albums and full-screen slideshows.
+
+**Control from your phone**
+- The Apple TV appears in the Plex mobile apps (Plex Companion): play,
+  pause, seek, next, stop from the phone.
 
 **Languages**
 - Interface in English and French, following the Apple TV language or set
   in Settings. On-screen keyboard in AZERTY, QWERTY or QWERTZ.
 
-What is done, planned or impossible on this hardware is tracked in
-[docs/PARITY.md](docs/PARITY.md): Plex Home users, collections, playlists,
-music, photos, casting from the phone, Live TV…
+What is done, limited or impossible on this hardware is tracked in
+[docs/PARITY.md](docs/PARITY.md) (Live TV, Plex's free movies…).
 
 ## Hardware limits
 
@@ -66,7 +82,7 @@ music, photos, casting from the phone, Live TV…
 | H.264 decoder only, 1080p30 | Other codecs, 4K and 60 fps are transcoded by the server: you need a server that can transcode. |
 | No HDR output | HDR sources need tone mapping on the server. |
 | AC-3 stalls the system player | AC-3, E-AC-3, DTS and TrueHD tracks are converted to AAC by the server. No passthrough. |
-| iOS 8 TLS stack | plex.tv online services (Discover, watchlist, Live TV guide) are not reachable yet. Your own servers work. |
+| iOS 8 TLS stack (no AES-GCM) | plex.tv itself is unreachable, but the app uses clients.plex.tv and the online providers, which work. Plex's free movies are not playable (fMP4 segments on a CDN that refuses iOS 8 ciphers). |
 | A5 CPU, 512 MB RAM | The UI is built on Core Animation, with text and images rendered off the main thread, recycled cells and caches. It runs at 50 to 60 fps on the device. |
 
 ## Requirements

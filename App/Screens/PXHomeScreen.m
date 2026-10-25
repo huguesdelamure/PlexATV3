@@ -285,9 +285,15 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     });
     NSMutableArray *built = [NSMutableArray array];
     CGFloat x = 84;
+    // Many libraries / tabs: tighter pills, then a smaller font, so the bar
+    // stays clear of the clock (right ~300 px).
     UIFont *f = PXFontSemi(28);
+    CGFloat pad = 48, room = 1920 - 84 - 300, total = 0;
+    for (NSDictionary *d in defs) total += PXTextWidth(d[@"title"], f) + pad + 6;
+    if (total > room) { pad = 28; total = 0; for (NSDictionary *d in defs) total += PXTextWidth(d[@"title"], f) + pad + 6; }
+    if (total > room) { f = PXFontSemi(24); pad = 24; }
     for (NSDictionary *d in defs) {
-        CGFloat w = PXTextWidth(d[@"title"], f) + 48;
+        CGFloat w = PXTextWidth(d[@"title"], f) + pad;
         CALayer *pill = [CALayer layer];
         pill.frame = CGRectMake(x, 0, w, 56);
         pill.cornerRadius = 28;
