@@ -7,7 +7,7 @@
 static inline NSString *PXTrackLabel(PXStream *s) {
     if (!s) return PXL(@"Aucun");
     NSString *t = s.displayTitle;
-    return s.forced ? [t stringByAppendingString:PXL(@" (forcés)")] : t;
+    return s.forced && s.streamType == 3 ? [t stringByAppendingString:PXL(@" (forcés)")] : t;
 }
 
 // Compact label for buttons: language, or the start of the title.
@@ -15,7 +15,8 @@ static inline NSString *PXShortTrack(PXStream *s) {
     if (!s) return PXL(@"Aucun");
     NSString *lang = s.language.length ? [s.language capitalizedString] : nil;
     NSString *t = lang ?: s.displayTitle;
-    return s.forced ? [t stringByAppendingString:PXL(@" (forcés)")] : t;
+    // "Forced" only means something for subtitles (some files flag audio too).
+    return s.forced && s.streamType == 3 ? [t stringByAppendingString:PXL(@" (forcés)")] : t;
 }
 
 static inline NSArray *PXAudioRows(PXItem *item, void (^pick)(NSInteger streamID)) {

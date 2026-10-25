@@ -15,6 +15,9 @@ PXScreen *PXServerListScreenNew(BOOL embedded);
 PXScreen *PXLinkScreenNew(void (^completion)(void));
 // embedded: shown inside the home tabs (no title, focus handed back on Up/Menu).
 PXScreen *PXLibraryScreenNew(NSDictionary *section, BOOL embedded);   // /library/sections entry
+// Poster grid of any item list of a server (collection, playlist, filmography).
+PXScreen *PXItemListScreenNew(NSString *title, NSString *path, PXServer *server);
+PXScreen *PXItemListScreenNewEmbedded(NSString *title, NSString *path, PXServer *server);   // home tab
 // Personal media library (no metadata agent): 16:9 artwork, no posters.
 BOOL PXSectionIsLandscape(NSDictionary *section);
 PXScreen *PXSettingsScreenNew(BOOL embedded);

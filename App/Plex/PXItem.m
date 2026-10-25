@@ -59,6 +59,9 @@ static NSArray *tags(id list) {
     if ([t isEqualToString:@"show"]) return PXItemShow;
     if ([t isEqualToString:@"season"]) return PXItemSeason;
     if ([t isEqualToString:@"episode"]) return PXItemEpisode;
+    if ([t isEqualToString:@"collection"]) return PXItemCollection;
+    if ([t isEqualToString:@"playlist"]) return PXItemPlaylist;
+    if ([t isEqualToString:@"clip"]) return PXItemClip;
     return PXItemOther;
 }
 
@@ -99,7 +102,7 @@ static NSString *frenchGenre(NSString *g) {
 }
 - (NSArray *)directors { return tags(_raw[@"Director"]); }
 - (NSArray *)roles { return tags(_raw[@"Role"]); }
-- (NSString *)thumb { return str(_raw[@"thumb"]); }
+- (NSString *)thumb { return str(_raw[@"thumb"]) ?: str(_raw[@"composite"]); }   // playlists: composite only
 - (PXServer *)server { return [[PXPlex shared] serverFor:_raw]; }
 - (NSString *)uniqueKey { return [NSString stringWithFormat:@"%@/%@", self.server.identifier ?: @"", self.ratingKey ?: @""]; }
 - (BOOL)hasPoster {
@@ -141,10 +144,25 @@ static NSString *frenchGenre(NSString *g) {
     NSMutableArray *out = [NSMutableArray array];
     for (NSDictionary *r in arr(_raw[@"Role"])) {
         if (![r isKindOfClass:[NSDictionary class]] || !str(r[@"tag"])) continue;
-        [out addObject:@{ @"name": str(r[@"tag"]), @"role": str(r[@"role"]) ?: @"", @"thumb": str(r[@"thumb"]) ?: @"" }];
+        [out addObject:@{ @"name": str(r[@"tag"]), @"role": str(r[@"role"]) ?: @"", @"thumb": str(r[@"thumb"]) ?: @"",
+                          @"id": [r[@"id"] description] ?: @"" }];
     }
     return out;
 }
+
+- (NSArray *)extras {
+    NSDictionary *e = _raw[@"Extras"];
+    if (![e isKindOfClass:[NSDictionary class]]) return @[];
+    NSMutableArray *out = [NSMutableArray array];
+    for (PXItem *it in [PXItem itemsWithJSON:e[@"Metadata"]]) {
+        // Tag them with our server: extras come nested, without "_server".
+        if (_raw[@"_server"] && [it.raw isKindOfClass:[NSMutableDictionary class]]) ((NSMutableDictionary *)it.raw)[@"_server"] = _raw[@"_server"];
+        [out addObject:it];
+    }
+    return out;
+}
+
+- (NSString *)librarySectionID { return [_raw[@"librarySectionID"] description]; }
 
 - (NSArray *)markers {
     NSMutableArray *out = [NSMutableArray array];

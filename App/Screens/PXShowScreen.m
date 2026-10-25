@@ -336,6 +336,11 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 @end
 
 PXScreen *PXScreenForItem(PXItem *item) {
+    if (item.type == PXItemCollection)
+        return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/library/collections/%@/children", item.ratingKey], item.server);
+    if (item.type == PXItemPlaylist)
+        return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/playlists/%@/items", item.ratingKey], item.server);
+    if (item.type == PXItemClip) return PXPlayerScreenNew(item, 0);   // trailers and other extras play directly
     if (item.type == PXItemShow || item.type == PXItemSeason) {
         PXShowScreen *s = [PXShowScreen new];
         s.showKey = item.type == PXItemShow ? item.ratingKey : item.parentRatingKey;

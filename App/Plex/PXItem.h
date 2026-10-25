@@ -3,7 +3,8 @@
 #import <Foundation/Foundation.h>
 @class PXServer;
 
-typedef NS_ENUM(NSInteger, PXItemType) { PXItemOther, PXItemMovie, PXItemShow, PXItemSeason, PXItemEpisode };
+typedef NS_ENUM(NSInteger, PXItemType) { PXItemOther, PXItemMovie, PXItemShow, PXItemSeason, PXItemEpisode,
+    PXItemCollection, PXItemPlaylist, PXItemClip };
 
 @interface PXStream : NSObject
 @property (nonatomic, readonly) NSInteger streamID;
@@ -48,7 +49,9 @@ typedef NS_ENUM(NSInteger, PXItemType) { PXItemOther, PXItemMovie, PXItemShow, P
 @property (nonatomic, readonly) NSString *landscapePath;  // 16:9: episode still, else backdrop
 @property (nonatomic, readonly) NSString *tagline;
 @property (nonatomic, readonly) NSArray *ratings;         // {image, value, type}
-@property (nonatomic, readonly) NSArray *cast;            // {name, role, thumb}
+@property (nonatomic, readonly) NSArray *cast;            // {name, role, thumb, id (tag id, for filmographies)}
+@property (nonatomic, readonly) NSArray *extras;          // PXItem clips (trailers, behind the scenes…), with includeExtras=1
+@property (nonatomic, readonly) NSString *librarySectionID;
 @property (nonatomic, readonly) NSArray *markers;         // {type, start, end} seconds
 @property (nonatomic, readonly) NSString *grandparentTitle;
 @property (nonatomic, readonly) NSString *grandparentRatingKey;

@@ -10,6 +10,11 @@ Releases page (see `scripts/release.sh`).
 - Plex Home profiles: "Who's watching?" picker with PIN pad, at launch
   (Settings > Profile at Launch) or from Settings > User; each profile keeps
   its own servers and home selection.
+- Collections (library chip), video playlists (home tab), extras row on
+  movie pages (trailers, behind the scenes), actor filmographies from the
+  cast row.
+- Fixes: "forced" shown only for subtitles; keyboard layout applies without
+  reopening the app.
 
 ## [1.0.0]
 

@@ -22,7 +22,7 @@
 
 static const CGFloat kLeft = 110, kTextW = 1080, kButtonsY = 830, kLowerY = 980;
 
-typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
+typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PXZoneSimilar };
 
 @interface PXDetailScreen : PXScreen
 @property (nonatomic, strong) PXItem *item;
@@ -35,6 +35,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
     PXButtonRow *_buttons;
     PXCastRow *_cast;
     PXShelfLayer *_similar;
+    PXShelfLayer *_extras;          // trailers, behind the scenes…
     PXZone _zone;
     PXOverlay *_overlay;
     BOOL _similarLoaded;
@@ -57,6 +58,10 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
     _cast = [[PXCastRow alloc] initWithWidth:1920];
     _cast.position = CGPointMake(0, kLowerY);
     [_page addSublayer:_cast];
+    _extras = [[PXShelfLayer alloc] initWithTitle:PXL(@"Bonus") width:1920 imageSize:CGSizeMake(380, 214) artwork:PXArtworkThumb];
+    _extras.leftMargin = kLeft;
+    _extras.hidden = YES;
+    [_page addSublayer:_extras];
     _similar = [[PXShelfLayer alloc] initWithTitle:PXL(@"Titres similaires") width:1920 imageSize:CGSizeMake(200, 300) artwork:PXArtworkPoster];
     _similar.leftMargin = kLeft;
     _similar.position = CGPointMake(0, kLowerY + _cast.height + 20);
@@ -118,7 +123,14 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
     _cast.server = it.server;
     _cast.people = it.cast;
     _cast.hidden = !it.cast.count;
-    PXNoAnim(^{ self->_similar.position = CGPointMake(0, kLowerY + (it.cast.count ? self->_cast.height + 20 : 0)); });
+    _extras.items = it.extras;
+    _extras.hidden = !it.extras.count;
+    PXNoAnim(^{
+        CGFloat y = kLowerY + (it.cast.count ? self->_cast.height + 20 : 0);
+        self->_extras.position = CGPointMake(0, y);
+        if (it.extras.count) y += self->_extras.height + 20;
+        self->_similar.position = CGPointMake(0, y);
+    });
     if (!_similarLoaded && it.type == PXItemMovie && it.media) [self loadSimilar];
 }
 
@@ -161,6 +173,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
 - (NSArray *)zones {
     NSMutableArray *z = [NSMutableArray arrayWithObject:@(PXZoneButtons)];
     if (!_cast.hidden && _cast.people.count) [z addObject:@(PXZoneCast)];
+    if (!_extras.hidden && _extras.items.count) [z addObject:@(PXZoneExtras)];
     if (!_similar.hidden && _similar.items.count) [z addObject:@(PXZoneSimilar)];
     return z;
 }
@@ -169,9 +182,11 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
     _zone = zone;
     _buttons.active = zone == PXZoneButtons && !_overlay;
     _cast.active = zone == PXZoneCast;
+    _extras.active = zone == PXZoneExtras;
     _similar.active = zone == PXZoneSimilar;
     CGFloat offset = 0;
     if (zone == PXZoneCast) offset = kLowerY - 300;
+    if (zone == PXZoneExtras) offset = _extras.position.y - 300;
     if (zone == PXZoneSimilar) offset = _similar.position.y - 300;
     PXAnim(0.4, ^{
         self->_page.position = CGPointMake(0, -offset);
@@ -181,6 +196,18 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
 }
 
 #pragma mark - Data / actions
+
+// Filmography of the focused cast member in this library.
+- (void)openPerson {
+    NSInteger i = _cast.focusIndex;
+    NSArray *people = _cast.people;
+    if (i < 0 || i >= (NSInteger)people.count) return;
+    NSDictionary *p = people[i];
+    NSString *sid = self.item.librarySectionID, *tag = p[@"id"];
+    if (!sid.length || !tag.length) return;
+    NSString *path = [NSString stringWithFormat:@"/library/sections/%@/all?actor=%@&sort=originallyAvailableAt:desc", sid, tag];
+    [self push:PXItemListScreenNew(p[@"name"], path, self.item.server)];
+}
 
 - (void)reloadItem {
     __weak PXDetailScreen *weak = self;
@@ -317,6 +344,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
             NSInteger d = key == PXKeyLeft ? -1 : 1;
             if (_zone == PXZoneButtons) [_buttons moveBy:d];
             else if (_zone == PXZoneCast) [_cast moveBy:d];
+            else if (_zone == PXZoneExtras) [_extras moveBy:d];
             else [_similar moveBy:d];
             return YES;
         }
@@ -329,6 +357,8 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneSimilar };
         case PXKeySelect:
             if (_zone == PXZoneButtons) [_buttons activate];
             else if (_zone == PXZoneSimilar && _similar.focusedItem) [self push:PXScreenForItem(_similar.focusedItem)];
+            else if (_zone == PXZoneExtras && _extras.focusedItem) [self push:PXPlayerScreenNew(_extras.focusedItem, 0)];
+            else if (_zone == PXZoneCast) [self openPerson];
             return YES;
         case PXKeyPlayPause:
             [self play:self.item.viewOffset > 30];

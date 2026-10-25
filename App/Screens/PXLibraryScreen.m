@@ -32,7 +32,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 }
 
 @interface PXLibraryScreen : PXScreen
-@property (nonatomic, copy) NSDictionary *section;
+@property (nonatomic, copy) NSDictionary *section;   // path mode: {title, _server}
+@property (nonatomic, copy) NSString *basePath;      // path mode: any item list (collection, playlist, filmography)
 @end
 
 @implementation PXLibraryScreen {
@@ -84,17 +85,24 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     _count.frame = CGRectMake(1920 - _left - 600, 72, 600, 40);
     [self.layer addSublayer:_title];
     [self.layer addSublayer:_count];
+    if (self.basePath) _title.string = self.section[@"title"] ?: @"";
     if (self.embedded) {
         // Inside the home tabs: the tab names the library; count on the chips row.
         _title.hidden = YES;
         _count.frame = CGRectMake(1920 - _left - 600, 154, 600, 40);
     }
     BOOL shows = [self.section[@"type"] isEqual:@"show"];
-    _filters = @[ @{ @"title": PXL(@"Tous"), @"query": @"sort=titleSort" },
-                  @{ @"title": PXL(@"Non vus"), @"query": @"sort=titleSort&unwatched=1" },
-                  @{ @"title": PXL(@"Ajouts récents"), @"query": @"sort=addedAt:desc" },
-                  @{ @"title": PXL(@"Mieux notés"), @"query": @"sort=audienceRating:desc" },
-                  @{ @"title": shows ? PXL(@"Dernière diffusion") : PXL(@"Les plus récents"), @"query": shows ? @"sort=episode.originallyAvailableAt:desc" : @"sort=originallyAvailableAt:desc" } ];
+    NSString *all = [NSString stringWithFormat:@"/library/sections/%@/all?", self.section[@"key"]];
+    NSMutableArray *filters = [@[ @{ @"title": PXL(@"Tous"), @"path": [all stringByAppendingString:@"sort=titleSort"] },
+                  @{ @"title": PXL(@"Non vus"), @"path": [all stringByAppendingString:@"sort=titleSort&unwatched=1"] },
+                  @{ @"title": PXL(@"Ajouts récents"), @"path": [all stringByAppendingString:@"sort=addedAt:desc"] },
+                  @{ @"title": PXL(@"Mieux notés"), @"path": [all stringByAppendingString:@"sort=audienceRating:desc"] },
+                  @{ @"title": shows ? PXL(@"Dernière diffusion") : PXL(@"Les plus récents"),
+                     @"path": [all stringByAppendingString:shows ? @"sort=episode.originallyAvailableAt:desc" : @"sort=originallyAvailableAt:desc"] } ] mutableCopy];
+    if (shows || [self.section[@"type"] isEqual:@"movie"])
+        [filters addObject:@{ @"title": PXL(@"Collections"), @"path": [NSString stringWithFormat:@"/library/sections/%@/collections", self.section[@"key"]] }];
+    if (self.basePath) [filters setArray:@[ @{ @"title": @"", @"path": self.basePath } ]];
+    _filters = filters;
     _chipsBar = [CALayer layer];
     _chipsBar.frame = CGRectMake(_left, 150, 1700, 52);
     [self.layer addSublayer:_chipsBar];
@@ -115,6 +123,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         [_chips addObject:@{ @"pill": pill, @"text": t }];
         x += w + 10;
     }
+    _chipsBar.hidden = self.basePath != nil;
     [self updateChips];
     [self loadPage:0];
 }
@@ -136,8 +145,9 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 }
 
 - (NSString *)pathForPage:(NSInteger)page {
-    return [NSString stringWithFormat:@"/library/sections/%@/all?%@&X-Plex-Container-Start=%ld&X-Plex-Container-Size=%ld",
-            self.section[@"key"], _filters[_filterIndex][@"query"], (long)(page * kPage), (long)kPage];
+    NSString *path = _filters[_filterIndex][@"path"];
+    return [NSString stringWithFormat:@"%@%@X-Plex-Container-Start=%ld&X-Plex-Container-Size=%ld",
+            path, [path containsString:@"?"] ? @"&" : @"?", (long)(page * kPage), (long)kPage];
 }
 
 - (void)loadPage:(NSInteger)page {
@@ -158,7 +168,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
         if (page == 0 && me->_filterIndex == 0) {
             BOOL landscape = PXItemsPreferLandscape(items);
-            PXRememberSectionLayout(me.section, landscape);
+            if (!me.basePath) PXRememberSectionLayout(me.section, landscape);
             if (landscape != me->_landscape) {
                 PXLog(@"library: %@ -> %@", me.section[@"title"], landscape ? @"16:9 cards" : @"posters");
                 [me setLandscape:landscape];
@@ -241,7 +251,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 
 - (void)focusChanged {
     // Entering from the tab bar lands on the filter chips.
-    if (self.hasFocus && self.embedded) _chipsFocused = YES;
+    if (self.hasFocus && self.embedded && !self.basePath) _chipsFocused = YES;
     [self updateChips];
     [self layoutCells:NO];
 }
@@ -297,7 +307,9 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
             default: return NO;
         }
     }
-    if (key == PXKeyUp && _focus < _cols) { _chipsFocused = YES; [self updateChips]; [self layoutCells:YES]; return YES; }
+    // Path mode inside the home tabs: no chips, Up on the first row goes back to the tabs.
+    if (key == PXKeyUp && _focus < _cols && self.basePath && self.embedded) return NO;
+    if (key == PXKeyUp && _focus < _cols && !self.basePath) { _chipsFocused = YES; [self updateChips]; [self layoutCells:YES]; return YES; }
     switch (key) {
         case PXKeyLeft:  if (_focus % _cols) [self moveTo:_focus - 1]; return YES;
         case PXKeyRight: if (_focus % _cols < _cols - 1) [self moveTo:_focus + 1]; return YES;
@@ -312,7 +324,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         }
         case PXKeyPlayPause: {
             PXItem *it = _focus < (NSInteger)_items.count ? _items[_focus] : nil;
-            if ([it isKindOfClass:[PXItem class]] && it.type == PXItemMovie) [self push:PXPlayerScreenNew(it, it.viewOffset)];
+            if ([it isKindOfClass:[PXItem class]] && (it.type == PXItemMovie || it.type == PXItemEpisode || it.type == PXItemClip))
+                [self push:PXPlayerScreenNew(it, it.viewOffset)];
             return YES;
         }
         default: return NO;
@@ -320,6 +333,23 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 }
 
 @end
+
+PXScreen *PXItemListScreenNew(NSString *title, NSString *path, PXServer *server) {
+    PXLibraryScreen *s = [PXLibraryScreen new];
+    s.section = @{ @"title": title ?: @"", @"_server": server.identifier ?: @"" };
+    s.basePath = path;
+    [s setup];
+    return s;
+}
+
+PXScreen *PXItemListScreenNewEmbedded(NSString *title, NSString *path, PXServer *server) {
+    PXLibraryScreen *s = [PXLibraryScreen new];
+    s.section = @{ @"title": title ?: @"", @"_server": server.identifier ?: @"" };
+    s.basePath = path;
+    s.embedded = YES;
+    [s setup];
+    return s;
+}
 
 PXScreen *PXLibraryScreenNew(NSDictionary *section, BOOL embedded) {
     PXLibraryScreen *s = [PXLibraryScreen new];

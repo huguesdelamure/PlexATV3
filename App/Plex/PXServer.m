@@ -170,7 +170,7 @@ static void tagServer(id obj, NSString *serverID) {
 }
 
 - (void)metadata:(NSString *)ratingKey done:(PXJSONBlock)done {
-    NSString *path = [NSString stringWithFormat:@"/library/metadata/%@?includeChapters=1", ratingKey];
+    NSString *path = [NSString stringWithFormat:@"/library/metadata/%@?includeChapters=1&includeExtras=1", ratingKey];
     [self get:path done:^(NSDictionary *mc, NSError *err) {
         id m = [mc[@"Metadata"] isKindOfClass:[NSArray class]] ? [mc[@"Metadata"] firstObject] : nil;
         done(m, err ?: (m ? nil : [NSError errorWithDomain:@"PXPlex" code:4 userInfo:@{ NSLocalizedDescriptionKey: PXL(@"Élément introuvable") }]));

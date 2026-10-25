@@ -26,6 +26,7 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     CALayer *_keyboard;
     NSMutableArray *_keys;          // rows of {layer, text, value}
     NSInteger _kr, _kc;             // focused key
+    NSString *_kbLayout;            // layout the keyboard was built with
     BOOL _inResults;
     CALayer *_resultsLayer;
     NSMutableArray *_shelves;
@@ -92,12 +93,21 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     }];
 }
 
+// Keyboard layout changed in Réglages since this screen was built.
+- (void)didAppear {
+    [super didAppear];
+    if (_keyboard && ![_kbLayout isEqual:PXKeyboardLayout()]) { [self buildKeyboard]; [self updateKeys]; }
+}
+
 #pragma mark - Keyboard
 
 - (void)buildKeyboard {
+    CALayer *old = _keyboard;
     _keyboard = [CALayer layer];
     _keyboard.frame = CGRectMake(kKbX, kKbY, 1700, 5 * (kKey + kKeyGap));
-    [self.layer addSublayer:_keyboard];
+    if (old) { [self.layer replaceSublayer:old with:_keyboard]; _kr = _kc = 0; }
+    else [self.layer addSublayer:_keyboard];
+    _kbLayout = PXKeyboardLayout();
     _keys = [NSMutableArray array];
     UIFont *f = PXFontSemi(34);
     NSArray *layoutRows = PXKeyboardRows();

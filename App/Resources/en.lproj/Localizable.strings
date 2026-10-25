@@ -140,3 +140,8 @@
 "Profil au lancement" = "Profile at Launch";
 "Toujours demander" = "Always Ask";
 "Dernier profil" = "Last Profile";
+
+/* Collections, playlists, extras */
+"Collections" = "Collections";
+"Listes de lecture" = "Playlists";
+"Bonus" = "Extras";
