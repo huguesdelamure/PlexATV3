@@ -10,6 +10,8 @@
 #import "PXLog.h"
 #import "PXSettings.h"
 #import "PXAmbientPlex.h"
+#import "PXOverlay.h"
+#import "PXListLayer.h"
 
 static const NSInteger kPage = 60;
 static const CGFloat kGapX = 44, kGapY = 30, kTop = 250;
@@ -56,6 +58,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     NSMutableArray *_chips;         // {pill, text}
     NSInteger _filterIndex;
     BOOL _chipsFocused;
+    PXOverlay *_overlay;            // genre / decade picker
     NSString *_ambientKey;
 }
 
@@ -114,11 +117,24 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     }
     else if (shows || [self.section[@"type"] isEqual:@"movie"])
         [filters addObject:@{ @"title": PXL(@"Collections"), @"path": [NSString stringWithFormat:@"/library/sections/%@/collections", self.section[@"key"]] }];
+    if ((shows || [self.section[@"type"] isEqual:@"movie"]) && !self.basePath) {
+        // Pickers: the chip shows all titles until a value is chosen (Select).
+        [filters addObject:[@{ @"title": PXL(@"Genre"), @"path": [all stringByAppendingString:@"sort=titleSort"], @"picker": @"genre" } mutableCopy]];
+        [filters addObject:[@{ @"title": PXL(@"Décennie"), @"path": [all stringByAppendingString:@"sort=titleSort"], @"picker": @"decade" } mutableCopy]];
+    }
     if (self.basePath) [filters setArray:@[ @{ @"title": @"", @"path": self.basePath } ]];
     _filters = filters;
     _chipsBar = [CALayer layer];
     _chipsBar.frame = CGRectMake(_left, 150, 1700, 52);
     [self.layer addSublayer:_chipsBar];
+    [self buildChips];
+    _chipsBar.hidden = self.basePath != nil;
+    [self updateChips];
+    [self loadPage:0];
+}
+
+- (void)buildChips {
+    for (NSDictionary *c in _chips) [c[@"pill"] removeFromSuperlayer];
     _chips = [NSMutableArray array];
     UIFont *f = PXFontSemi(24);
     CGFloat x = 0;
@@ -136,9 +152,39 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         [_chips addObject:@{ @"pill": pill, @"text": t }];
         x += w + 10;
     }
-    _chipsBar.hidden = self.basePath != nil;
-    [self updateChips];
-    [self loadPage:0];
+}
+
+// Genre / decade values of this library, then the grid filtered on the choice.
+- (void)openPicker:(NSInteger)index {
+    NSMutableDictionary *fd = _filters[index];
+    NSString *kind = fd[@"picker"];
+    __weak PXLibraryScreen *weak = self;
+    [[[PXPlex shared] serverFor:self.section] get:[NSString stringWithFormat:@"/library/sections/%@/%@", self.section[@"key"], kind] done:^(NSDictionary *mc, NSError *err) {
+        PXLibraryScreen *me = weak;
+        if (!me) return;
+        NSString *all = [NSString stringWithFormat:@"/library/sections/%@/all?sort=titleSort", me.section[@"key"]];
+        NSMutableArray *rows = [NSMutableArray array];
+        void (^choose)(NSString *, NSString *) = ^(NSString *title, NSString *path) {
+            PXLibraryScreen *me2 = weak;
+            if (!me2) return;
+            fd[@"title"] = title;
+            fd[@"path"] = path;
+            [me2->_overlay close];
+            [me2 buildChips];
+            me2->_filterIndex = -1;            // force the reload
+            [me2 applyFilter:index];
+        };
+        NSString *allTitle = [kind isEqual:@"genre"] ? PXL(@"Genre") : PXL(@"Décennie");
+        [rows addObject:[PXListRow title:[kind isEqual:@"genre"] ? PXL(@"Tous les genres") : PXL(@"Toutes les décennies") value:@"" action:^{ choose(allTitle, all); }]];
+        for (NSDictionary *d in mc[@"Directory"]) {
+            NSString *t = d[@"title"], *k = [d[@"key"] description];
+            if (!t || !k) continue;
+            NSString *path = [NSString stringWithFormat:@"%@&%@=%@", all, kind, PXEncode(k)];
+            [rows addObject:[PXListRow title:t value:@"" action:^{ choose(t, path); }]];
+        }
+        me->_overlay = [PXOverlay overlayInLayer:me.layer title:allTitle rows:rows];
+        me->_overlay.onClose = ^{ PXLibraryScreen *me3 = weak; if (me3) me3->_overlay = nil; };
+    }];
 }
 
 - (void)setLandscape:(BOOL)landscape {
@@ -323,6 +369,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
 }
 
 - (BOOL)handleKey:(PXKey)key {
+    if (_overlay) return [_overlay handleKey:key];
+    if (_chipsFocused && key == PXKeySelect && _filters[_filterIndex][@"picker"]) { [self openPicker:_filterIndex]; return YES; }
     if (_chipsFocused) {
         switch (key) {
             case PXKeyLeft:  [self applyFilter:MAX(0, _filterIndex - 1)]; return YES;

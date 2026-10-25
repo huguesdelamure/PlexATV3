@@ -167,3 +167,17 @@
 "Contrôle depuis l'app Plex" = "Control from the Plex App";
 "Activé" = "On";
 "Désactivé" = "Off";
+
+/* Subtitles size, theme music */
+"Taille des sous-titres" = "Subtitle Size";
+"Musique des séries" = "Theme Music";
+"Petite" = "Small";
+"Normale" = "Normal";
+"Grande" = "Large";
+"Très grande" = "Extra Large";
+
+/* Library pickers */
+"Genre" = "Genre";
+"Décennie" = "Decade";
+"Tous les genres" = "All Genres";
+"Toutes les décennies" = "All Decades";

@@ -7,6 +7,8 @@
 
 #import "PXRouter.h"
 #import "PXMusicPlayer.h"
+#import "PXSettings.h"
+#import <AVFoundation/AVFoundation.h>
 #import "PXServer.h"
 #import "PXBackRow.h"
 #import "PXUI.h"
@@ -31,6 +33,8 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 @end
 
 @implementation PXShowScreen {
+    AVPlayer *_theme;               // theme song, once per visit
+    BOOL _themePlayed;
     PXAmbientLayer *_ambient;
     CALayer *_page, *_header;
     PXButtonRow *_buttons;
@@ -100,6 +104,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         [me->_ambient showItem:me->_show];
         [me selectOnDeckSeason];
         [me renderHeader];
+        [me playTheme];
     }];
     [self loadSeasons];
 }
@@ -294,6 +299,26 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 - (void)didAppear {
     [super didAppear];
     if (_loadedSeason) { [self loadShow]; }   // refresh progress after playback
+}
+
+// Theme song of the show, quietly, like the official apps (Réglages can turn
+// it off); not over music that is already playing.
+- (void)playTheme {
+    NSString *theme = _show.raw[@"theme"];
+    if (_themePlayed || ![theme isKindOfClass:[NSString class]] || [PXSettingGet(@"themeMusic") isEqual:@NO]
+        || [PXMusicPlayer shared].active || !self.isOnTop || !self.server.uri) return;
+    _themePlayed = YES;
+    NSURL *u = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@?%@", self.server.uri, theme, [self.server plexQuery]]];
+    _theme = [AVPlayer playerWithURL:u];
+    NSNumber *v = PXSettingGet(@"volume");
+    _theme.volume = 0.35 * (v ? v.floatValue : 1);
+    [_theme play];
+}
+
+- (void)willDisappear {
+    [_theme pause];
+    _theme = nil;
+    [super willDisappear];
 }
 
 - (BOOL)handleKey:(PXKey)key {

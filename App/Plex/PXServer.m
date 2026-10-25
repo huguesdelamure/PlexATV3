@@ -230,10 +230,10 @@ static BOOL canDirectPlay(NSDictionary *media) {
     NSString *query = [NSString stringWithFormat:
         @"path=%@&mediaIndex=%ld&partIndex=0&protocol=hls&fastSeek=1"
         @"&directPlay=0&directStream=1&directStreamAudio=1&videoQuality=100&maxVideoBitrate=%d&videoResolution=1920x1080"
-        @"&subtitles=burn&subtitleSize=100&audioBoost=100&location=wan&offset=%.0f&session=%@&X-Plex-Session-Identifier=%@"
+        @"&subtitles=burn&subtitleSize=%d&audioBoost=100&location=wan&offset=%.0f&session=%@&X-Plex-Session-Identifier=%@"
         @"&X-Plex-Client-Profile-Extra=%@",
         PXEncode([@"/library/metadata/" stringByAppendingString:metadata[@"ratingKey"] ?: @""]), (long)mediaIndex,
-        [PXSettingGet(@"maxBitrate") intValue] ?: 8000, seconds, session, session, PXEncode(profile)];
+        [PXSettingGet(@"maxBitrate") intValue] ?: 8000, [PXSettingGet(@"subtitleSize") intValue] ?: 100, seconds, session, session, PXEncode(profile)];
     // Current PMS refuses start.m3u8 for a session that has not asked for a
     // decision first ("session lacking decision"): ask, then start.
     NSString *base = _uri;

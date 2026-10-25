@@ -97,6 +97,16 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
     [rows addObjectsFromArray:@[
         [PXListRow title:PXL(@"Langue") value:[self languageLabel] action:^{ [weak nextLanguage]; }],
         [PXListRow title:PXL(@"Clavier") value:[self keyboardLabel] action:^{ [weak nextKeyboard]; }],
+        [PXListRow title:PXL(@"Taille des sous-titres") value:[self subtitleSizeLabel] action:^{
+            NSArray *steps = @[ @80, @100, @125, @150 ];
+            NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"subtitleSize") intValue] ?: 100)];
+            PXSettingSet(@"subtitleSize", steps[(i == NSNotFound ? 1 : i + 1) % steps.count]);
+            [weak rebuildKeepingFocus];
+        }],
+        [PXListRow title:PXL(@"Musique des séries") value:[PXSettingGet(@"themeMusic") isEqual:@NO] ? PXL(@"Désactivé") : PXL(@"Activé") action:^{
+            PXSettingSet(@"themeMusic", @([PXSettingGet(@"themeMusic") isEqual:@NO]));
+            [weak rebuildKeepingFocus];
+        }],
         [PXListRow title:PXL(@"Contrôle depuis l'app Plex") value:[PXCompanion enabled] ? PXL(@"Activé") : PXL(@"Désactivé") action:^{
             BOOL on = ![PXCompanion enabled];
             PXSettingSet(@"companion", @(on));
@@ -130,6 +140,21 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
         self->_info.frame = CGRectMake(30, 26, 400, h);
         self->_infoPanel.frame = CGRectMake(1320, 230, 460, h + 52);
     });
+}
+
+- (NSString *)subtitleSizeLabel {
+    switch ([PXSettingGet(@"subtitleSize") intValue] ?: 100) {
+        case 80: return PXL(@"Petite");
+        case 125: return PXL(@"Grande");
+        case 150: return PXL(@"Très grande");
+        default: return PXL(@"Normale");
+    }
+}
+
+- (void)rebuildKeepingFocus {
+    NSInteger focus = _list.focusIndex;
+    [self buildMain];
+    _list.focusIndex = focus;
 }
 
 #pragma mark - Language and keyboard

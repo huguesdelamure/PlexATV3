@@ -48,7 +48,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 | Extras: trailers, behind the scenes, deleted scenes | done |
 | Actor / director pages (filmography in the library) | done (actors) |
 | Mark watched / unwatched, rating | done (watched), rating planned |
-| Music libraries: artists, albums, tracks | planned |
+| Music libraries: artists, albums, tracks | done |
 | Photo libraries and slideshows | done |
 | Top Shelf on the Apple TV home | done |
 
