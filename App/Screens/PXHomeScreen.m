@@ -51,6 +51,7 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
     NSString *_tabsSignature;
     NSArray *_tabSections;           // last library list, to rebuild the tabs
     BOOL _hasPlaylists;              // video playlists on the tabs server
+    BOOL _hasWatchlist;              // plex.tv watchlist not empty (main home)
 }
 
 - (instancetype)init {
@@ -235,7 +236,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 
 - (void)buildTabsIfNeeded:(NSArray *)sections {
     _tabSections = sections;
-    NSString *sig = [[[sections valueForKey:@"title"] componentsJoinedByString:@"|"] stringByAppendingFormat:@"|%d|%d", [self showsServersTab], _hasPlaylists];
+    NSString *sig = [[[sections valueForKey:@"title"] componentsJoinedByString:@"|"] stringByAppendingFormat:@"|%d|%d|%d", [self showsServersTab], _hasPlaylists, _hasWatchlist];
     if ([sig isEqual:_tabsSignature]) return;
     _tabsSignature = sig;
     [self buildTabs:sections];
@@ -252,6 +253,12 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     NSMutableArray *defs = [NSMutableArray arrayWithObject:@{ @"title": self.server ? self.server.name : PXL(@"Accueil") }];
     for (NSDictionary *s in sections)
         [defs addObject:@{ @"title": s[@"title"] ?: @"?", @"make": ^PXScreen *{ return PXLibraryScreenNew(s, YES); } }];
+    if (_hasWatchlist && !self.server) {
+        [defs addObject:@{ @"title": PXL(@"Ma liste"), @"make": ^PXScreen *{
+            return PXItemListScreenNewEmbedded(PXL(@"Ma liste"), @"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1",
+                                               [PXPlex shared].onlineProvider);
+        } }];
+    }
     if (_hasPlaylists) {
         PXServer *sv = self.server ?: [PXPlex shared].primaryServer;
         [defs addObject:@{ @"title": PXL(@"Listes de lecture"), @"make": ^PXScreen *{
@@ -502,6 +509,14 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
             return;
         }
         [me buildTabsIfNeeded:[me videoSections:mc]];
+        // Watchlist (online): one more tab when it is not empty.
+        if (!me.server) [[PXPlex shared] fetchWatchlist:^(NSArray *items, NSError *e) {
+            PXHomeScreen *me2 = weak;
+            BOOL has = items.count > 0;
+            if (!me2 || e || has == me2->_hasWatchlist) return;
+            me2->_hasWatchlist = has;
+            [me2 buildTabsIfNeeded:me2->_tabSections];
+        }];
         // Video playlists: one more tab when the server has some.
         [tabsServer get:@"/playlists?playlistType=video&X-Plex-Container-Size=1" done:^(NSDictionary *pl, NSError *e) {
             PXHomeScreen *me2 = weak;

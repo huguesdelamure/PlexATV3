@@ -58,7 +58,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 |---|---|
 | Search by type, suggestions before typing | done |
 | Unified search across servers | done |
-| Search in online content (Discover) | planned (discover.provider.plex.tv reachable) |
+| Search in online content (Discover) | done ("More on Plex" row) |
 | Voice search | no (no microphone on the remote) |
 
 ### Playback
@@ -102,7 +102,9 @@ with a hardware/OS compromise), **no** (not possible on this device).
 
 | Feature | Status |
 |---|---|
-| Watchlist, Discover, free movies and channels | planned (providers reachable from the device) |
+| Watchlist | done |
+| Free movies and shows (Plex VOD) | no on iOS 8: fMP4 HLS segments (iOS 10+) on a CDN that refuses the iOS 8 cipher suites; would need a remux relay |
+| Discover hubs (trending, coming soon) | planned |
 
 ### Remote control and casting
 

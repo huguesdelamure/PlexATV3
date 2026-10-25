@@ -52,6 +52,15 @@ static void tagServer(id obj, NSString *serverID) {
     return self;
 }
 
+- (instancetype)initOnlineProvider:(NSString *)baseURL identifier:(NSString *)identifier name:(NSString *)name {
+    if ((self = [super init])) {
+        _resource = @{ @"clientIdentifier": identifier, @"name": name, @"owned": @NO, @"presence": @YES };
+        _uri = baseURL;
+        _provider = YES;
+    }
+    return self;
+}
+
 - (void)updateResource:(NSDictionary *)resource { _resource = resource; }
 
 - (NSDictionary *)resource { return _resource; }
@@ -154,8 +163,14 @@ static void tagServer(id obj, NSString *serverID) {
     [self request:@"PUT" path:path timeout:20 headers:nil done:done];
 }
 
+static NSURL *publicImageURL(NSString *url, int w, int h, int blur) {
+    return [NSURL URLWithString:[NSString stringWithFormat:@"https://images.plex.tv/photo?width=%d&height=%d&minSize=1&upscale=1%@&url=%@",
+                                 w, h, blur ? [NSString stringWithFormat:@"&blur=%d", blur] : @"", PXEncode(url)]];
+}
+
 - (NSURL *)imageURL:(NSString *)thumb width:(int)w height:(int)h {
     if (!thumb.length || !_uri) return nil;
+    if (_provider) return [thumb hasPrefix:@"http"] ? publicImageURL(thumb, w, h, 0) : nil;
     // Let the server resize: decoding full-size posters would exhaust 512 MB.
     NSString *u = [NSString stringWithFormat:@"%@/photo/:/transcode?width=%d&height=%d&minSize=1&upscale=1&url=%@&X-Plex-Token=%@",
                    _uri, w, h, PXEncode(thumb), PXEncode(self.token)];
@@ -164,6 +179,7 @@ static void tagServer(id obj, NSString *serverID) {
 
 - (NSURL *)artURL:(NSString *)art width:(int)w height:(int)h blur:(int)blur {
     if (!art.length || !_uri) return nil;
+    if (_provider) return [art hasPrefix:@"http"] ? publicImageURL(art, w, h, blur) : nil;
     NSString *u = [NSString stringWithFormat:@"%@/photo/:/transcode?width=%d&height=%d&minSize=1&upscale=1%@&url=%@&X-Plex-Token=%@",
                    _uri, w, h, blur ? [NSString stringWithFormat:@"&blur=%d", blur] : @"", PXEncode(art), PXEncode(self.token)];
     return [NSURL URLWithString:u];

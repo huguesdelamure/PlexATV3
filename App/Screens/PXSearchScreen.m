@@ -205,7 +205,8 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     if (plex.primaryServer) [servers addObject:plex.primaryServer];
     for (PXServer *s in plex.servers) if (s.online && s != plex.primaryServer) [servers addObject:s];
     NSMutableDictionary *results = [NSMutableDictionary dictionary];   // identifier -> hubs
-    __block NSInteger pending = servers.count;
+    __block NSArray *online = nil;                                      // titles found on plex.tv (not on the servers)
+    __block NSInteger pending = servers.count + 1;
     __block BOOL done = NO;
     __weak PXSearchScreen *weak = self;
     void (^finish)(void) = ^{
@@ -225,10 +226,19 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
         NSMutableArray *rows = [NSMutableArray array];
         for (NSString *type in @[ @"movie", @"show", @"season", @"episode" ])
             if ([byType[type] count]) [rows addObject:@{ @"title": titles[type], @"items": byType[type], @"type": type }];
+        // Online: what is not already in the rows above (same plex:// guid).
+        NSMutableSet *local = [NSMutableSet set];
+        for (NSArray *list in byType.allValues) for (PXItem *it in list) if (it.guid) [local addObject:it.guid];
+        NSMutableArray *elsewhere = [NSMutableArray array];
+        for (PXItem *it in online) if (it.guid && ![local containsObject:it.guid]) [elsewhere addObject:it];
+        if (elsewhere.count) [rows addObject:@{ @"title": PXL(@"Ailleurs sur Plex"), @"items": elsewhere, @"type": @"online" }];
         PXLog(@"search: '%@' %lu/%lu servers answered", q, (unsigned long)results.count, (unsigned long)servers.count);
         [me showResults:rows];
     };
-    if (!pending) { finish(); return; }
+    [plex searchOnline:q done:^(NSArray *items, NSError *err) {
+        online = items;
+        if (--pending == 0) finish();
+    }];
     NSString *path = [NSString stringWithFormat:@"/hubs/search?query=%@&limit=10", PXEncode(q)];
     for (PXServer *s in servers) {
         [s get:path done:^(NSDictionary *mc, NSError *err) {
@@ -250,7 +260,7 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
                                                       artwork:episodes ? PXArtworkThumb : PXArtworkPoster];
         // Results from other servers say where they are.
         s.configure = ^(PXPosterLayer *cell, PXItem *it, NSInteger i) {
-            if (![it isKindOfClass:[PXItem class]] || it.server == [PXPlex shared].primaryServer) return;
+            if (![it isKindOfClass:[PXItem class]] || it.server == [PXPlex shared].primaryServer || it.server.provider) return;
             NSString *sub = it.type == PXItemEpisode ? it.episodeCode : it.shelfSubtitle;
             cell.subtitleOverride = sub.length ? [NSString stringWithFormat:@"%@ · %@", sub, it.server.name] : it.server.name;
         };

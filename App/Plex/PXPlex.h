@@ -22,6 +22,15 @@ typedef void (^PXJSONBlock)(id json, NSError *error);
 - (void)signOut;
 - (void)fetchServers:(PXJSONBlock)done;                     // json: array of server resources
 
+// --- Online (discover.provider.plex.tv, reachable on iOS 8 unlike plex.tv):
+// watchlist and online search. Items come tagged with the provider "server".
+@property (nonatomic, readonly) PXServer *onlineProvider;
+- (void)fetchWatchlist:(PXJSONBlock)done;                                // json: array of PXItem
+- (BOOL)isWatchlisted:(NSString *)guid;                                  // plex://movie/… (from the last fetch)
+- (void)setWatchlisted:(BOOL)on guid:(NSString *)guid done:(PXJSONBlock)done;
+- (void)findLocalForGuid:(NSString *)guid done:(PXJSONBlock)done;        // json: PXItem on one of the servers, or nil
+- (void)searchOnline:(NSString *)query done:(PXJSONBlock)done;           // json: array of PXItem
+
 // --- Plex Home users (profiles). The token of the linked account is kept as
 // "accountToken"; "authToken" is the token of the active profile, used by
 // every other call. Each profile keeps its own server choice.

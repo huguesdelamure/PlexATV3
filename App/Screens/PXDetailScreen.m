@@ -123,7 +123,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     _cast.server = it.server;
     _cast.people = it.cast;
     _cast.hidden = !it.cast.count;
-    _extras.items = it.extras;
+    _extras.items = it.server.provider ? @[] : it.extras;   // online extras: fMP4 HLS, not playable on iOS 8
     _extras.hidden = !it.extras.count;
     PXNoAnim(^{
         CGFloat y = kLowerY + (it.cast.count ? self->_cast.height + 20 : 0);
@@ -131,13 +131,24 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         if (it.extras.count) y += self->_extras.height + 20;
         self->_similar.position = CGPointMake(0, y);
     });
-    if (!_similarLoaded && it.type == PXItemMovie && it.media) [self loadSimilar];
+    if (!_similarLoaded && it.type == PXItemMovie && it.media && !it.server.provider) [self loadSimilar];
 }
 
 - (void)buildButtons {
     PXItem *it = self.item;
     __weak PXDetailScreen *weak = self;
     NSMutableArray *b = [NSMutableArray array];
+    BOOL listed = [[PXPlex shared] isWatchlisted:it.guid];
+    PXButton *watch = [it.guid hasPrefix:@"plex://"] ? [PXButton icon:listed ? PXIconCheck : PXIconStar title:listed ? PXL(@"Dans ma liste") : PXL(@"Ajouter à ma liste")
+                                                                action:^{ [weak toggleWatchlist]; }] : nil;
+    if (it.server.provider) {
+        // Online title, on none of the servers: only the watchlist.
+        if (watch) [b addObject:watch];
+        _buttons.buttons = b;
+        _buttons.focusIndex = 0;
+        _buttons.active = _zone == PXZoneButtons && !_overlay;
+        return;
+    }
     if (it.viewOffset > 30) {
         [b addObject:[PXButton icon:PXIconPlay title:PXLF(@"Reprendre à %@", PXClock(it.viewOffset)) action:^{ [weak play:YES]; }]];
         [b addObject:[PXButton icon:PXIconRestart title:PXL(@"Du début") action:^{ [weak play:NO]; }]];
@@ -151,6 +162,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     if (_locations.count)
         [b addObject:[PXButton icon:PXIconSearch title:PXLF(@"Sources (%lu)", (unsigned long)_locations.count + 1) action:^{ [weak pickLocation]; }]];
     [b addObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Vu") : PXL(@"Marquer vu") action:^{ [weak toggleWatched]; }]];
+    if (watch) [b addObject:watch];
     NSInteger keep = _buttons.focusIndex;
     _buttons.buttons = b;
     _buttons.focusIndex = keep;
@@ -197,6 +209,12 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
 
 #pragma mark - Data / actions
 
+- (void)toggleWatchlist {
+    BOOL on = ![[PXPlex shared] isWatchlisted:self.item.guid];
+    __weak PXDetailScreen *weak = self;
+    [[PXPlex shared] setWatchlisted:on guid:self.item.guid done:^(id json, NSError *err) { [weak buildButtons]; }];
+}
+
 // Filmography of the focused cast member in this library.
 - (void)openPerson {
     NSInteger i = _cast.focusIndex;
@@ -226,7 +244,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
 - (void)loadLocations {
     PXItem *it = self.item;
     NSString *guid = it.guid;
-    if (![guid hasPrefix:@"plex://"] || [guid isEqual:_locationsFor] || !(it.type == PXItemMovie || it.type == PXItemEpisode)) return;
+    if (![guid hasPrefix:@"plex://"] || [guid isEqual:_locationsFor] || !(it.type == PXItemMovie || it.type == PXItemEpisode) || it.server.provider) return;
     _locationsFor = guid;
     NSMutableArray *servers = [NSMutableArray array];
     for (PXServer *s in [PXPlex shared].servers) if (s.online && s != it.server) [servers addObject:s];
@@ -361,6 +379,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
             else if (_zone == PXZoneCast) [self openPerson];
             return YES;
         case PXKeyPlayPause:
+            if (self.item.server.provider) return YES;   // nothing to play online
             [self play:self.item.viewOffset > 30];
             return YES;
         case PXKeyMenu:

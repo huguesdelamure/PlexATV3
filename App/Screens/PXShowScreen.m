@@ -361,7 +361,38 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 
 @end
 
+// Online title (watchlist, online search): the copy on one of the servers
+// when there is one (playable), else the online page.
+@interface PXOnlineItemScreen : PXScreen
+@property (nonatomic, strong) PXItem *item;
+@end
+
+@implementation PXOnlineItemScreen
+- (void)didAppear {
+    [super didAppear];
+    if (self.layer.sublayers.count) return;
+    CALayer *spin = PXSpinner(64);
+    spin.position = CGPointMake(960, 540);
+    [self.layer addSublayer:spin];
+    self.layer.backgroundColor = PXColorBackground();
+    __weak PXOnlineItemScreen *weak = self;
+    PXItem *it = self.item;
+    [[PXPlex shared] findLocalForGuid:it.guid done:^(PXItem *local, NSError *err) {
+        PXOnlineItemScreen *me = weak;
+        if (!me || !me.host) return;
+        if (local) { [[me.host stack] swapController:PXHostControllerForScreen(PXScreenForItem(local))]; return; }
+        [it.server metadata:it.ratingKey done:^(NSDictionary *m, NSError *e) {
+            PXOnlineItemScreen *me2 = weak;
+            if (!me2 || !me2.host) return;
+            PXItem *full = m ? [PXItem itemWithJSON:m] : it;
+            [[me2.host stack] swapController:PXHostControllerForScreen(PXDetailScreenNew(full))];
+        }];
+    }];
+}
+@end
+
 PXScreen *PXScreenForItem(PXItem *item) {
+    if (item.server.provider) { PXOnlineItemScreen *s = [PXOnlineItemScreen new]; s.item = item; return s; }
     if (item.type == PXItemCollection)
         return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/library/collections/%@/children", item.ratingKey], item.server);
     if (item.type == PXItemPlaylist)

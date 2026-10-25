@@ -10,6 +10,10 @@
 @interface PXServer : NSObject
 
 - (instancetype)initWithResource:(NSDictionary *)resource;
+// Plex online provider (discover.provider.plex.tv: watchlist, online search),
+// used like a server; images through the public images.plex.tv transcoder.
+- (instancetype)initOnlineProvider:(NSString *)baseURL identifier:(NSString *)identifier name:(NSString *)name;
+@property (nonatomic, readonly) BOOL provider;   // online provider, not a media server
 - (void)updateResource:(NSDictionary *)resource;   // fresher plex.tv data, keeps the connection
 
 @property (nonatomic, readonly) NSString *identifier;   // clientIdentifier

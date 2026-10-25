@@ -181,3 +181,9 @@
 "Décennie" = "Decade";
 "Tous les genres" = "All Genres";
 "Toutes les décennies" = "All Decades";
+
+/* Watchlist, online */
+"Ma liste" = "Watchlist";
+"Dans ma liste" = "On Watchlist";
+"Ajouter à ma liste" = "Add to Watchlist";
+"Ailleurs sur Plex" = "More on Plex";

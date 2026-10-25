@@ -16,6 +16,9 @@ Releases page (see `scripts/release.sh`).
 - Music: library tabs (artists, albums, recently added), album pages, now
   playing screen with queue, shuffle, repeat and volume; FLAC and other
   formats converted to AAC by the server.
+- Watchlist (plex.tv, through discover.provider.plex.tv): "Watchlist" home
+  tab, add / remove from movie and show pages, titles found on your servers
+  open their local page; "More on Plex" online search results.
 - Plex Companion: the Apple TV shows up in the Plex mobile apps (GDM) and
   can be controlled from them (play, pause, seek, stop, next); Settings >
   Control from the Plex App.

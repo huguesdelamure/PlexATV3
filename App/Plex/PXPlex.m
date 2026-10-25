@@ -43,6 +43,7 @@ static NSArray *extraAnchors(void) {
 
 @interface PXPlex () <NSURLSessionDelegate>
 @property (nonatomic, strong) NSURLSession *session;
+@property (nonatomic, strong) NSSet *watchlistKeys;
 @end
 
 @implementation PXPlex {
@@ -135,7 +136,8 @@ static NSArray *extraAnchors(void) {
     [[self plexHeaders] enumerateKeysAndObjectsUsingBlock:^(id k, id v, BOOL *stop) { [req setValue:v forHTTPHeaderField:k]; }];
     // PMS warns that container listings without these headers will soon fail;
     // explicit query-string paging (X-Plex-Container-*=) takes precedence.
-    if ([url rangeOfString:@"X-Plex-Container-Size"].location == NSNotFound) {
+    // Not for the online providers: they answer 400 above 100 items per page.
+    if ([url rangeOfString:@"X-Plex-Container-Size"].location == NSNotFound && ![req.URL.host hasSuffix:@".provider.plex.tv"]) {
         [req setValue:@"0" forHTTPHeaderField:@"X-Plex-Container-Start"];
         [req setValue:@"2000" forHTTPHeaderField:@"X-Plex-Container-Size"];
     }
@@ -338,7 +340,86 @@ static id plistSafe(id v) {
 }
 
 - (PXServer *)serverWithID:(NSString *)identifier {
+    if ([identifier isEqual:self.onlineProvider.identifier]) return self.onlineProvider;
     return identifier ? _servers[identifier] : nil;
+}
+
+#pragma mark - Online
+
+- (PXServer *)onlineProvider {
+    static PXServer *p;
+    if (!p) p = [[PXServer alloc] initOnlineProvider:@"https://discover.provider.plex.tv" identifier:@"tv.plex.provider.discover" name:@"Plex"];
+    return p;
+}
+
+static NSString *onlineKey(NSString *guid) {
+    // plex://movie/5d77682e… -> 5d77682e… (the provider's ratingKey)
+    return [guid hasPrefix:@"plex://"] ? [[guid componentsSeparatedByString:@"/"] lastObject] : nil;
+}
+
+- (void)fetchWatchlist:(PXJSONBlock)done {
+    [self.onlineProvider get:@"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1&X-Plex-Container-Size=100" done:^(NSDictionary *mc, NSError *err) {
+        NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
+        if (mc) {
+            NSMutableSet *keys = [NSMutableSet set];
+            for (PXItem *it in items) if (it.ratingKey) [keys addObject:it.ratingKey];
+            self->_watchlistKeys = keys;
+        }
+        if (done) done(items, err);
+    }];
+}
+
+- (BOOL)isWatchlisted:(NSString *)guid { NSString *k = onlineKey(guid); return k && [_watchlistKeys containsObject:k]; }
+
+- (void)setWatchlisted:(BOOL)on guid:(NSString *)guid done:(PXJSONBlock)done {
+    NSString *k = onlineKey(guid);
+    if (!k) { if (done) done(nil, nil); return; }
+    NSString *path = [NSString stringWithFormat:@"/actions/%@?ratingKey=%@", on ? @"addToWatchlist" : @"removeFromWatchlist", k];
+    [self.onlineProvider put:path done:^(id json, NSError *err) {
+        if (!err) {
+            NSMutableSet *keys = [self->_watchlistKeys mutableCopy] ?: [NSMutableSet set];
+            if (on) [keys addObject:k]; else [keys removeObject:k];
+            self->_watchlistKeys = keys;
+        }
+        PXLog(@"online: watchlist %@ %@ -> %@", on ? @"add" : @"remove", k, err ? err.localizedDescription : @"ok");
+        if (done) done(@(on), err);
+    }];
+}
+
+- (void)findLocalForGuid:(NSString *)guid done:(PXJSONBlock)done {
+    NSMutableArray *servers = [NSMutableArray array];
+    for (PXServer *s in [@[ self.primaryServer ?: [NSNull null] ] arrayByAddingObjectsFromArray:self.selectedServers])
+        if ([s isKindOfClass:[PXServer class]] && s.connected && ![servers containsObject:s]) [servers addObject:s];
+    if (!guid.length || !servers.count) { done(nil, nil); return; }
+    __block NSInteger pending = servers.count;
+    __block BOOL answered = NO;
+    void (^finish)(PXItem *) = ^(PXItem *it) {
+        if (answered) return;
+        if (it || --pending == 0) { answered = YES; done(it, nil); }
+    };
+    for (PXServer *s in servers) {
+        [s get:[@"/library/all?guid=" stringByAppendingString:PXEncode(guid)] done:^(NSDictionary *mc, NSError *err) {
+            finish([PXItem itemsWithJSON:mc[@"Metadata"]].firstObject);
+        }];
+    }
+    // Slow servers do not hold the answer forever.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ if (!answered) { answered = YES; done(nil, nil); } });
+}
+
+- (void)searchOnline:(NSString *)query done:(PXJSONBlock)done {
+    NSString *path = [NSString stringWithFormat:@"/library/search?query=%@&limit=20&searchTypes=movies,tv&searchProviders=discover&includeMetadata=1", PXEncode(query)];
+    [self.onlineProvider get:path done:^(NSDictionary *mc, NSError *err) {
+        NSMutableArray *raw = [NSMutableArray array];
+        for (NSDictionary *r in mc[@"SearchResults"])
+            for (NSDictionary *x in r[@"SearchResult"]) {
+                NSMutableDictionary *m = [x[@"Metadata"] mutableCopy];
+                if (![m isKindOfClass:[NSDictionary class]]) continue;
+                m[@"_server"] = self.onlineProvider.identifier;   // nested: not tagged by get
+                [raw addObject:m];
+            }
+        PXLog(@"online: search '%@' -> %lu%@", query, (unsigned long)raw.count, err ? [@" " stringByAppendingString:err.localizedDescription] : @"");
+        done([PXItem itemsWithJSON:raw], err);
+    }];
 }
 
 - (PXServer *)primaryServer {
