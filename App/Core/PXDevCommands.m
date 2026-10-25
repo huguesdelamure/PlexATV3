@@ -8,6 +8,7 @@
 #import "PXBackRow.h"
 #import "PXRouter.h"
 #import "PXPlex.h"
+#import "PXServer.h"
 #import "PXItem.h"
 #import "PXLog.h"
 #import <objc/runtime.h>
@@ -62,6 +63,18 @@ void PXRegisterDevCommands(void) {
         if (!a.count) return;
         id stack = [[PXCls("BRApplicationStackManager") singleton] stack];
         [stack pushController:PXHostControllerForScreen(PXScreenForRatingKey(a[0]))];
+    });
+    // pget <path>: GET on the primary server, logs the shape of the answer (no token).
+    PXDebugRegister(@"pget", ^(NSArray *a) {
+        if (!a.count) return;
+        [[PXPlex shared].primaryServer get:a[0] done:^(NSDictionary *mc, NSError *err) {
+            NSMutableArray *parts = [NSMutableArray array];
+            [mc enumerateKeysAndObjectsUsingBlock:^(id k, id v, BOOL *stop) {
+                if ([v isKindOfClass:[NSArray class]]) [parts addObject:[NSString stringWithFormat:@"%@[%lu]", k, (unsigned long)[v count]]];
+                else if (![v isKindOfClass:[NSDictionary class]]) [parts addObject:[NSString stringWithFormat:@"%@=%@", k, v]];
+            }];
+            PXLog(@"pget %@ -> %@ %@", a[0], err ? err.localizedDescription : @"ok", [parts componentsJoinedByString:@" "]);
+        }];
     });
     PXDebugRegister(@"fetch", ^(NSArray *a) {
         if (!a.count) return;
