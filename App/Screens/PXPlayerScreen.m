@@ -12,6 +12,7 @@
 #import "PXServer.h"
 #import "PXRouter.h"
 #import "PXMusicPlayer.h"
+#import "PXKeepAwake.h"
 #import "PXUI.h"
 #import "PXOverlay.h"
 #import "PXTracks.h"
@@ -424,6 +425,8 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
 - (void)tick {
     AVPlayerItem *pi = _player.currentItem;
+    // No screensaver nor idle sleep while the video plays (paused: allowed).
+    if (_player.rate > 0) PXKeepAwake(YES); else PXAllowSleep();
     if (!_failed && (pi.status == AVPlayerItemStatusFailed || _player.status == AVPlayerStatusFailed)) {
         [self fail:(pi.error ?: _player.error).localizedDescription ?: PXL(@"erreur inconnue")];
         return;
@@ -905,6 +908,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     _videoLayer.player = nil;
     _player = nil;
     _userPausedFlag = NO;
+    PXAllowSleep();
     [super didPop];
 }
 

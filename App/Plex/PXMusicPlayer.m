@@ -4,6 +4,7 @@
 #import "PXServer.h"
 #import "PXSettings.h"
 #import "PXLog.h"
+#import "PXKeepAwake.h"
 
 NSString *const PXMusicDidChange = @"PXMusicDidChange";
 
@@ -131,6 +132,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     [self endSession];
     [_player pause];
     [_player replaceCurrentItemWithPlayerItem:nil];
+    PXAllowSleep();
     _queue = nil;
     _original = nil;
     _index = 0;
@@ -203,6 +205,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 
 - (void)tick {
     if (!self.active) return;
+    if (self.playing) PXKeepAwake(NO); else PXAllowSleep();   // the screensaver may run over music
     if (self.elapsed > 1) _failures = 0;   // this one plays
     // Server timeline every 10 s (play count, "recently played", other clients).
     if (self.playing && self.elapsed - _lastReport >= 10) { _lastReport = self.elapsed; [self report:@"playing"]; }

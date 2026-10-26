@@ -8,6 +8,7 @@
 #import "PXBackRow.h"
 #import "PXRouter.h"
 #import "PXPlex.h"
+#import <objc/message.h>
 #import "PXServer.h"
 #import "PXItem.h"
 #import "PXLog.h"
@@ -63,6 +64,12 @@ void PXRegisterDevCommands(void) {
         if (!a.count) return;
         id stack = [[PXCls("BRApplicationStackManager") singleton] stack];
         [stack pushController:PXHostControllerForScreen(PXScreenForRatingKey(a[0]))];
+    });
+    // saver: is the screensaver showing (no screen capture needed).
+    PXDebugRegister(@"saver", ^(NSArray *a) {
+        id mgr = [PXCls("ATVScreenSaverManager") singleton];
+        BOOL showing = [mgr respondsToSelector:@selector(isScreenSaverShowing)] && ((BOOL (*)(id, SEL))objc_msgSend)(mgr, @selector(isScreenSaverShowing));
+        PXLog(@"saver: %@", showing ? @"SHOWING" : @"hidden");
     });
     // pget <path>: GET on the primary server, logs the shape of the answer (no token).
     PXDebugRegister(@"pget", ^(NSArray *a) {
