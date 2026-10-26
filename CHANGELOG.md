@@ -5,7 +5,10 @@ changes that break settings or installation, minor for features, patch for
 fixes. Each release is a tag `vX.Y.Z` with a build attached on the GitHub
 Releases page (see `scripts/release.sh`).
 
-## [Unreleased]
+## [1.1.0]
+
+Plex Home profiles, music, photos, collections, watchlist, control from
+the phone.
 
 - Plex Home profiles: "Who's watching?" picker with PIN pad, at launch
   (Settings > Profile at Launch) or from Settings > User; each profile keeps
@@ -26,7 +29,9 @@ Releases page (see `scripts/release.sh`).
   Control from the Plex App.
 - Photos: library tabs, albums, full-screen viewer with slideshow.
 - Fixes: "forced" shown only for subtitles; keyboard layout applies without
-  reopening the app.
+  reopening the app; trailers play through the server; empty home after a
+  primary server change; secondary actions behind "More" when the button
+  row is full; same-named servers show their platform.
 
 ## [1.0.0]
 
