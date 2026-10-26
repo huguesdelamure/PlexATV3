@@ -5,6 +5,20 @@ changes that break settings or installation, minor for features, patch for
 fixes. Each release is a tag `vX.Y.Z` with a build attached on the GitHub
 Releases page (see `scripts/release.sh`).
 
+## [1.2.0]
+
+- Fix: the screensaver no longer starts during a video, and the Apple TV
+  does not go to sleep during video or music playback.
+- Episode pages: "Season N" button to the show, on that season.
+- Search also finds artists, albums, tracks and photos.
+- Audio playlists (music library chip), playing from a track on; music rows
+  on the home.
+- "Filter" menu in libraries: genre, decade, resolution, label.
+- Lyrics in "now playing" (servers that provide them).
+- Control from the Plex app: navigation (arrows, select, back, home).
+- Watchlist beyond 100 titles; a music track still loading after 10 s is
+  skipped.
+
 ## [1.1.0]
 
 Plex Home profiles, music, photos, collections, watchlist, control from
