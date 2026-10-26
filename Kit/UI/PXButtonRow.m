@@ -31,6 +31,24 @@ static const CGFloat kH = 72;
     return self;
 }
 
+static CGFloat buttonWidth(PXButton *b) {
+    CGFloat textW = MIN(PXTextWidth(b.title, PXFontSemi(27)), 330);
+    CGFloat iconW = b.hasIcon ? 30 : 0, gap = b.hasIcon && b.title.length ? 14 : 0;
+    return (b.title.length ? textW : 0) + iconW + gap + (b.title.length ? 64 : 42);
+}
+
+- (NSUInteger)countFitting:(NSArray *)buttons {
+    CGFloat x = 0;
+    NSUInteger n = 0;
+    for (PXButton *b in buttons) {
+        CGFloat w = buttonWidth(b);
+        if (x + w > self.bounds.size.width) break;
+        x += w + 18;
+        n++;
+    }
+    return n;
+}
+
 - (void)setButtons:(NSArray *)buttons {
     _buttons = [buttons copy];
     for (NSDictionary *v in _views) [v[@"pill"] removeFromSuperlayer];

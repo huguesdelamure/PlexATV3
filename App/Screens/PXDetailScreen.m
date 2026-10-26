@@ -161,11 +161,25 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         [b addObject:[PXButton icon:PXIconInfo title:[[PXItem labelForMedia:it.media] componentsSeparatedByString:@" · "].firstObject action:^{ [weak pickVersion]; }]];
     if (_locations.count)
         [b addObject:[PXButton icon:PXIconSearch title:PXLF(@"Sources (%lu)", (unsigned long)_locations.count + 1) action:^{ [weak pickLocation]; }]];
-    [b addObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Vu") : PXL(@"Marquer vu") action:^{ [weak toggleWatched]; }]];
-    if (watch) [b addObject:watch];
     double rating = [it.raw[@"userRating"] doubleValue];   // 0-10
     NSString *stars = rating > 0 ? [@"" stringByPaddingToLength:(NSUInteger)lround(rating / 2) withString:@"★" startingAtIndex:0] : PXL(@"Noter");
-    [b addObject:[PXButton icon:PXIconStar title:stars action:^{ [weak pickRating]; }]];
+    NSMutableArray *more = [NSMutableArray arrayWithObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Vu") : PXL(@"Marquer vu") action:^{ [weak toggleWatched]; }]];
+    if (watch) [more addObject:watch];
+    [more addObject:[PXButton icon:PXIconStar title:stars action:^{ [weak pickRating]; }]];
+    // Not enough room for everything: the secondary actions go behind "Plus".
+    NSArray *all = [b arrayByAddingObjectsFromArray:more];
+    if ([_buttons countFitting:all] >= all.count) [b addObjectsFromArray:more];
+    else {
+        [b addObject:[PXButton icon:PXIconInfo title:PXL(@"Plus") action:^{
+            PXDetailScreen *me = weak;
+            NSMutableArray *rows = [NSMutableArray array];
+            for (PXButton *m in more) {
+                void (^act)(void) = m.action;
+                [rows addObject:[PXListRow title:m.title value:@"" action:^{ [weak closeOverlay]; if (act) act(); }]];
+            }
+            [me showOverlay:PXL(@"Plus") rows:rows];
+        }]];
+    }
     NSInteger keep = _buttons.focusIndex;
     _buttons.buttons = b;
     _buttons.focusIndex = keep;

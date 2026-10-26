@@ -169,9 +169,9 @@ static const CGFloat kTitleLine = 30;
         self->_progressBack.hidden = prog <= 0;
         self->_progress.bounds = CGRectMake(0, 0, self->_progressBack.bounds.size.width * prog, 6);
         BOOL container = it.type == PXItemShow || it.type == PXItemSeason;
-        NSInteger left = container ? it.unwatchedLeaves : 0;
+        NSInteger left = container && !it.server.provider ? it.unwatchedLeaves : 0;
         // Watch state only means something for movies and episodes.
-        BOOL watchable = it.type == PXItemMovie || it.type == PXItemEpisode;
+        BOOL watchable = (it.type == PXItemMovie || it.type == PXItemEpisode) && !it.server.provider;   // online titles: no watch state
         self->_dot.hidden = !it || container || !watchable || it.watched || prog > 0;
         self->_count.hidden = left <= 0 || it.watched;
         if (left > 0) {

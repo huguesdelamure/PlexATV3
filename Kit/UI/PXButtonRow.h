@@ -15,7 +15,8 @@
 
 @interface PXButtonRow : CALayer
 - (instancetype)initWithFrame:(CGRect)frame;
-@property (nonatomic, copy) NSArray *buttons;     // PXButton
+@property (nonatomic, copy) NSArray *buttons;     // PXButton (those that do not fit are dropped)
+- (NSUInteger)countFitting:(NSArray *)buttons;   // how many of these fit in the row's width
 @property (nonatomic, assign) NSInteger focusIndex;
 @property (nonatomic, assign) BOOL active;
 - (BOOL)moveBy:(NSInteger)delta;
