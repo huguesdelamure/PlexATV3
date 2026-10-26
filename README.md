@@ -17,9 +17,11 @@ directly and plays video with the device's hardware H.264 decoder.
 |---|---|
 | ![Movie page](docs/screenshots/detail.jpg) | ![Player](docs/screenshots/player.jpg) |
 | ![Search](docs/screenshots/search.jpg) | ![Settings](docs/screenshots/settings.jpg) |
+| ![Album](docs/screenshots/album.jpg) | ![Now playing](docs/screenshots/nowplaying.jpg) |
 
 <sub>Screenshots taken on an Apple TV 3 with a demo library of Blender open movies
-(Sintel, Big Buck Bunny, Tears of Steel, Elephants Dream; CC BY, Blender Foundation).</sub>
+(Sintel, Big Buck Bunny, Tears of Steel, Elephants Dream and its soundtrack by Jan Morgenstern;
+CC BY, Blender Foundation).</sub>
 
 ## Features
 
