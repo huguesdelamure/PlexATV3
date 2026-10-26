@@ -48,6 +48,8 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     CATextLayer *_title, *_artist, *_album, *_elapsed, *_remaining, *_upNext, *_modes;
     CALayer *_bar, *_fill;
     NSString *_shownKey;
+    CATextLayer *_lyricPrev, *_lyricNow, *_lyricNext;
+    NSArray *_lyrics;            // {time (seconds, -1 if not synced), text}
     PXOverlay *_overlay;
 }
 
@@ -86,6 +88,17 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     _upNext.frame = CGRectMake(x, 750, 960, 34);
     _upNext.truncationMode = kCATruncationEnd;
     for (CATextLayer *t in @[ _elapsed, _remaining, _modes, _upNext ]) [self.layer addSublayer:t];
+    // Lyrics (Plex Pass servers): the current line between the previous and the next.
+    _lyricPrev = PXText(PXFont(28), PXColorTextFaint());
+    _lyricNow = PXText(PXFontSemi(34), PXColorText());
+    _lyricNext = PXText(PXFont(28), PXColorTextFaint());
+    CGFloat ly = 830;
+    for (CATextLayer *t in @[ _lyricPrev, _lyricNow, _lyricNext ]) {
+        t.frame = CGRectMake(x, ly, 960, 44);
+        t.truncationMode = kCATruncationEnd;
+        [self.layer addSublayer:t];
+        ly += 50;
+    }
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(refresh) name:PXMusicDidChange object:nil];
     [self refresh];
 }
@@ -103,6 +116,7 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
         _cover.position = CGPointMake(110 + 300, 540);
         [self.layer addSublayer:_cover];
         [_ambient showItem:t];
+        [self loadLyrics:t];
         PXNoAnim(^{
             PXSetText(self->_title, t.title ?: @"");
             PXSetText(self->_artist, t.grandparentTitle ?: t.raw[@"originalTitle"] ?: @"");
@@ -122,6 +136,57 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
         PXSetText(self->_modes, [modes stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]);
         PXSetText(self->_upNext, next ? PXLF(@"À suivre : %@", next.title ?: @"") : @"");
     });
+    [self showLyricsAt:p];
+}
+
+// Lyrics stream of the track (streamType 4), LRC ("[mm:ss.xx] line") or text.
+- (void)loadLyrics:(PXItem *)t {
+    _lyrics = nil;
+    [self showLyricsAt:0];
+    NSString *key = t.uniqueKey;
+    __weak PXNowPlayingScreen *weak = self;
+    [t.server metadata:t.ratingKey done:^(NSDictionary *m, NSError *err) {
+        PXItem *full = m ? [PXItem itemWithJSON:m] : nil;
+        NSDictionary *stream = nil;
+        for (NSDictionary *st in full.part[@"Stream"]) if ([st isKindOfClass:[NSDictionary class]] && [st[@"streamType"] intValue] == 4 && st[@"key"]) stream = st;
+        if (!stream) return;
+        [t.server getText:stream[@"key"] done:^(NSString *text) {
+            PXNowPlayingScreen *me = weak;
+            if (!me || !text.length || ![key isEqual:me->_shownKey]) return;
+            me->_lyrics = [PXNowPlayingScreen parseLyrics:text];
+            PXLog(@"music: %lu lyric lines for %@", (unsigned long)me->_lyrics.count, t.title);
+        }];
+    }];
+}
+
++ (NSArray *)parseLyrics:(NSString *)text {
+    NSMutableArray *out = [NSMutableArray array];
+    NSRegularExpression *tag = [NSRegularExpression regularExpressionWithPattern:@"^\\[(\\d+):(\\d+(?:\\.\\d+)?)\\]" options:0 error:NULL];
+    for (NSString *raw in [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        NSTextCheckingResult *r = [tag firstMatchInString:line options:0 range:NSMakeRange(0, line.length)];
+        if (r) {
+            double sec = [[line substringWithRange:[r rangeAtIndex:1]] doubleValue] * 60 + [[line substringWithRange:[r rangeAtIndex:2]] doubleValue];
+            NSString *words = [[line substringFromIndex:r.range.length] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            [out addObject:@{ @"time": @(sec), @"text": words }];
+        } else if (line.length && ![line hasPrefix:@"["]) {
+            [out addObject:@{ @"time": @(-1), @"text": line }];
+        }
+    }
+    return out;
+}
+
+- (void)showLyricsAt:(double)t {
+    NSString *prev = @"", *now = @"", *next = @"";
+    if (_lyrics.count) {
+        BOOL synced = [_lyrics.firstObject[@"time"] doubleValue] >= 0;
+        NSInteger i = 0;
+        if (synced) { for (NSInteger k = 0; k < (NSInteger)_lyrics.count; k++) if ([_lyrics[k][@"time"] doubleValue] <= t) i = k; }
+        if (i > 0) prev = _lyrics[i - 1][@"text"];
+        now = _lyrics[i][@"text"];
+        if (i + 1 < (NSInteger)_lyrics.count) next = _lyrics[i + 1][@"text"];
+    }
+    PXNoAnim(^{ PXSetText(self->_lyricPrev, prev); PXSetText(self->_lyricNow, now); PXSetText(self->_lyricNext, next); });
 }
 
 - (void)showOptions {

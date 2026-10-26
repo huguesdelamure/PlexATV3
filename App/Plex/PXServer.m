@@ -324,6 +324,16 @@ static BOOL canDirectPlay(NSDictionary *media) {
     }];
 }
 
+- (void)getText:(NSString *)path done:(void (^)(NSString *))done {
+    if (!_uri) { done(nil); return; }
+    NSString *u = [NSString stringWithFormat:@"%@%@%@%@", _uri, path, [path containsString:@"?"] ? @"&" : @"?", [self plexQuery]];
+    [[[NSURLSession sharedSession] dataTaskWithURL:[NSURL URLWithString:u] completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        NSInteger code = [(NSHTTPURLResponse *)r statusCode];
+        NSString *t = (!e && code == 200 && d.length) ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{ done(t); });
+    }] resume];
+}
+
 - (void)stopAudioTranscode:(NSString *)session {
     if (!session) return;
     NSString *path = [NSString stringWithFormat:@"/music/:/transcode/universal/stop?session=%@&X-Plex-Session-Identifier=%@", session, session];

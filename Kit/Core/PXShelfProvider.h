@@ -19,4 +19,10 @@
 - (void)shelfContent:(void (^)(NSDictionary *shelf))completion;
 // BackRow controller to push for an item of the shelf (play = start playback).
 - (id)controllerForShelfItem:(NSString *)identifier play:(BOOL)play;
+// Active user of the app when it has several (Plex Home profiles), for a
+// launcher's profile badge: @{ @"name", @"thumb" (avatar URL), @"id" }, or nil.
+// Changes are announced with the NSNotification "PXHomeUserDidChange".
+- (NSDictionary *)homeUser;
+// BackRow controller of the app's profile picker, for the launcher to push.
+- (id)controllerForUserSwitch;
 @end

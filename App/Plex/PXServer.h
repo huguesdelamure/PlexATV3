@@ -47,6 +47,8 @@
 - (void)prepareAudio:(NSDictionary *)track done:(PXJSONBlock)done;
 - (void)prepareAudio:(NSDictionary *)track convert:(BOOL)convert done:(PXJSONBlock)done;   // convert: never direct
 - (void)stopAudioTranscode:(NSString *)session;
+// Plain text resource of the server (lyrics streams), nil on failure.
+- (void)getText:(NSString *)path done:(void (^)(NSString *text))done;
 - (NSString *)plexQuery;   // identification + token query string (AVPlayer URLs)
 
 @end

@@ -67,6 +67,18 @@ void PXRegisterDevCommands(void);
 
 #pragma mark PXShelfProvider (launcher Top Shelf)
 
+- (NSDictionary *)homeUser {
+    PXPlex *plex = [PXPlex shared];
+    NSDictionary *u = plex.homeUsers.count > 1 ? plex.currentHomeUser : nil;
+    if (!u) return nil;
+    return @{ @"name": u[@"title"] ?: @"", @"thumb": u[@"thumb"] ?: @"", @"id": u[@"uuid"] ?: @"" };
+}
+
+- (id)controllerForUserSwitch {
+    return PXHostControllerForScreen(PXProfilesScreenNew(NO, nil));
+}
+
+
 - (void)shelfContent:(void (^)(NSDictionary *))completion {
     PXPlex *plex = [PXPlex shared];
     if (!plex.isLinked || !plex.hasServer) { completion(nil); return; }

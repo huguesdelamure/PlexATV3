@@ -122,8 +122,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         [filters addObject:@{ @"title": PXL(@"Collections"), @"path": [NSString stringWithFormat:@"/library/sections/%@/collections", self.section[@"key"]] }];
     if ((shows || [self.section[@"type"] isEqual:@"movie"]) && !self.basePath) {
         // Pickers: the chip shows all titles until a value is chosen (Select).
-        [filters addObject:[@{ @"title": PXL(@"Genre"), @"path": [all stringByAppendingString:@"sort=titleSort"], @"picker": @"genre" } mutableCopy]];
-        [filters addObject:[@{ @"title": PXL(@"Décennie"), @"path": [all stringByAppendingString:@"sort=titleSort"], @"picker": @"decade" } mutableCopy]];
+        [filters addObject:[@{ @"title": PXL(@"Filtrer"), @"path": [all stringByAppendingString:@"sort=titleSort"], @"picker": @"menu" } mutableCopy]];
     }
     if (self.basePath) [filters setArray:@[ @{ @"title": @"", @"path": self.basePath } ]];
     _filters = filters;
@@ -157,35 +156,57 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     }
 }
 
-// Genre / decade values of this library, then the grid filtered on the choice.
+// "Filtrer": a category (genre, decade, resolution, label), then one of its
+// values in this library; the chip takes the value's name.
+static NSString *pickerTitle(NSString *kind) {
+    return [kind isEqual:@"genre"] ? PXL(@"Genre") : [kind isEqual:@"decade"] ? PXL(@"Décennie")
+         : [kind isEqual:@"resolution"] ? PXL(@"Résolution") : PXL(@"Étiquette");
+}
+
 - (void)openPicker:(NSInteger)index {
     NSMutableDictionary *fd = _filters[index];
-    NSString *kind = fd[@"picker"];
+    __weak PXLibraryScreen *weak = self;
+    NSString *all = [NSString stringWithFormat:@"/library/sections/%@/all?sort=titleSort", self.section[@"key"]];
+    NSMutableArray *rows = [NSMutableArray arrayWithObject:[PXListRow title:PXL(@"Aucun filtre") value:@"" action:^{
+        [weak choose:PXL(@"Filtrer") path:all forFilter:index];
+    }]];
+    for (NSString *kind in @[ @"genre", @"decade", @"resolution", @"label" ])
+        [rows addObject:[PXListRow title:[pickerTitle(kind) stringByAppendingString:@"…"] value:@"" action:^{
+            PXLibraryScreen *me = weak;
+            [me->_overlay close];
+            [me openValues:kind forFilter:index];
+        }]];
+    _overlay = [PXOverlay overlayInLayer:self.layer title:PXL(@"Filtrer") rows:rows];
+    _overlay.onClose = ^{ PXLibraryScreen *me = weak; if (me) me->_overlay = nil; };
+    (void)fd;
+}
+
+- (void)choose:(NSString *)title path:(NSString *)path forFilter:(NSInteger)index {
+    NSMutableDictionary *fd = _filters[index];
+    fd[@"title"] = title;
+    fd[@"path"] = path;
+    [_overlay close];
+    [self buildChips];
+    _filterIndex = -1;            // force the reload
+    [self applyFilter:index];
+}
+
+- (void)openValues:(NSString *)kind forFilter:(NSInteger)index {
     __weak PXLibraryScreen *weak = self;
     [[[PXPlex shared] serverFor:self.section] get:[NSString stringWithFormat:@"/library/sections/%@/%@", self.section[@"key"], kind] done:^(NSDictionary *mc, NSError *err) {
         PXLibraryScreen *me = weak;
         if (!me || me->_overlay) return;
         NSString *all = [NSString stringWithFormat:@"/library/sections/%@/all?sort=titleSort", me.section[@"key"]];
         NSMutableArray *rows = [NSMutableArray array];
-        void (^choose)(NSString *, NSString *) = ^(NSString *title, NSString *path) {
-            PXLibraryScreen *me2 = weak;
-            if (!me2) return;
-            fd[@"title"] = title;
-            fd[@"path"] = path;
-            [me2->_overlay close];
-            [me2 buildChips];
-            me2->_filterIndex = -1;            // force the reload
-            [me2 applyFilter:index];
-        };
-        NSString *allTitle = [kind isEqual:@"genre"] ? PXL(@"Genre") : PXL(@"Décennie");
-        [rows addObject:[PXListRow title:[kind isEqual:@"genre"] ? PXL(@"Tous les genres") : PXL(@"Toutes les décennies") value:@"" action:^{ choose(allTitle, all); }]];
         for (NSDictionary *d in mc[@"Directory"]) {
+            if (![d isKindOfClass:[NSDictionary class]]) continue;
             NSString *t = d[@"title"], *k = [d[@"key"] description];
-            if (!t || !k) continue;
+            if (![t isKindOfClass:[NSString class]] || !k) continue;
             NSString *path = [NSString stringWithFormat:@"%@&%@=%@", all, kind, PXEncode(k)];
-            [rows addObject:[PXListRow title:t value:@"" action:^{ choose(t, path); }]];
+            [rows addObject:[PXListRow title:t value:@"" action:^{ [weak choose:t path:path forFilter:index]; }]];
         }
-        me->_overlay = [PXOverlay overlayInLayer:me.layer title:allTitle rows:rows];
+        if (!rows.count) [rows addObject:[PXListRow title:err ? err.localizedDescription : PXL(@"Aucune valeur") value:@"" action:nil]];
+        me->_overlay = [PXOverlay overlayInLayer:me.layer title:pickerTitle(kind) rows:rows];
         me->_overlay.onClose = ^{ PXLibraryScreen *me3 = weak; if (me3) me3->_overlay = nil; };
     }];
 }

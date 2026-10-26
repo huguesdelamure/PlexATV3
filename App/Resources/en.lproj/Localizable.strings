@@ -205,3 +205,10 @@
 "Plus" = "More";
 "Morceaux" = "Tracks";
 "Photos" = "Photos";
+
+/* Library filter menu */
+"Filtrer" = "Filter";
+"Aucun filtre" = "No Filter";
+"Résolution" = "Resolution";
+"Étiquette" = "Label";
+"Aucune valeur" = "Nothing to Filter";
