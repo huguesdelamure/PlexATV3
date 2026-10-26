@@ -155,6 +155,10 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     } else {
         [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lecture") action:^{ [weak play:NO]; }]];
     }
+    // Episode opened from the home: a way to its season and show.
+    if (it.type == PXItemEpisode && it.parentRatingKey && it.grandparentRatingKey)
+        [b addObject:[PXButton icon:PXIconChapters title:it.parentIndex ? PXLF(@"Saison %ld", (long)it.parentIndex) : PXL(@"Voir la série")
+                                action:^{ [weak openSeason]; }]];
     if (it.audioStreams.count > 1) [b addObject:[PXButton icon:PXIconAudio title:PXShortTrack(it.selectedAudio) action:^{ [weak pickAudio]; }]];
     if (it.part) [b addObject:[PXButton icon:PXIconSubtitles title:it.selectedSubtitle ? PXShortTrack(it.selectedSubtitle) : PXL(@"Sans sous-titres") action:^{ [weak pickSubtitle]; }]];
     if (it.mediaList.count > 1)
@@ -255,6 +259,13 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     }
     [it.server put:path done:nil];
     [self buildButtons];
+}
+
+- (void)openSeason {
+    PXItem *it = self.item;
+    NSMutableDictionary *season = [@{ @"ratingKey": it.parentRatingKey, @"parentRatingKey": it.grandparentRatingKey, @"type": @"season" } mutableCopy];
+    if (it.raw[@"_server"]) season[@"_server"] = it.raw[@"_server"];
+    [self push:PXScreenForItem([PXItem itemWithJSON:season])];
 }
 
 - (void)toggleWatchlist {

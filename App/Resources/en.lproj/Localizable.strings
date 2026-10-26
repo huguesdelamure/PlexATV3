@@ -212,3 +212,7 @@
 "Résolution" = "Resolution";
 "Étiquette" = "Label";
 "Aucune valeur" = "Nothing to Filter";
+
+/* Episode page */
+"Saison %ld" = "Season %ld";
+"Voir la série" = "Go to Show";
