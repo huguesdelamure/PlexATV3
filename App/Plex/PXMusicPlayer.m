@@ -178,17 +178,27 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
         // the server conversion once, then the next track.
         AVPlayerItem *pi = me->_player.currentItem;
         BOOL direct = [r[@"directPlay"] boolValue];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            PXMusicPlayer *me2 = weak;
-            if (!me2 || serial != me2->_serial || pi.status != AVPlayerItemStatusFailed) return;
-            PXLog(@"music: %@ failed (%@): %@", track.title, direct ? @"direct" : @"converted", pi.error.localizedDescription);
-            if (direct) { [me2 startCurrentConverted:YES]; return; }
-            // Every track of the queue failed: stop instead of looping on the server.
-            if (++me2->_failures >= (NSInteger)me2->_queue.count) { PXLog(@"music: nothing playable, stopping"); [me2 stop]; return; }
-            [me2 next];
-        });
+        [me checkItem:pi serial:serial direct:direct track:track attempt:0];
         [me changed];
     }];
+}
+
+// A file the server cannot serve directly (404, unreadable): through the
+// server conversion once, then the next track. Still loading after 10 s
+// counts as a failure too.
+- (void)checkItem:(AVPlayerItem *)pi serial:(NSInteger)serial direct:(BOOL)direct track:(PXItem *)track attempt:(int)attempt {
+    __weak PXMusicPlayer *weak = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (attempt ? 6 : 4) * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        PXMusicPlayer *me = weak;
+        if (!me || serial != me->_serial) return;
+        if (pi.status == AVPlayerItemStatusUnknown && attempt == 0) { [me checkItem:pi serial:serial direct:direct track:track attempt:1]; return; }
+        if (pi.status == AVPlayerItemStatusReadyToPlay) return;
+        PXLog(@"music: %@ failed (%@): %@", track.title, direct ? @"direct" : @"converted", pi.error.localizedDescription ?: @"timeout");
+        if (direct) { [me startCurrentConverted:YES]; return; }
+        // Every track of the queue failed: stop instead of looping on the server.
+        if (++me->_failures >= (NSInteger)me->_queue.count) { PXLog(@"music: nothing playable, stopping"); [me stop]; return; }
+        [me next];
+    });
 }
 
 - (void)tick {

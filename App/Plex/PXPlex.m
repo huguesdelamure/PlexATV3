@@ -363,14 +363,27 @@ static NSString *onlineKey(NSString *guid) {
 }
 
 - (void)fetchWatchlist:(PXJSONBlock)done {
-    [self.onlineProvider get:@"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1&X-Plex-Container-Size=100" done:^(NSDictionary *mc, NSError *err) {
+    [self fetchWatchlistFrom:0 into:[NSMutableArray array] done:done];
+}
+
+// Pages of 100 (the provider refuses more), up to 1000 titles.
+- (void)fetchWatchlistFrom:(NSInteger)start into:(NSMutableArray *)all done:(PXJSONBlock)done {
+    NSString *path = [NSString stringWithFormat:@"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1"
+                      @"&X-Plex-Container-Start=%ld&X-Plex-Container-Size=100", (long)start];
+    [self.onlineProvider get:path done:^(NSDictionary *mc, NSError *err) {
         NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
+        [all addObjectsFromArray:items];
+        NSInteger total = [mc[@"totalSize"] integerValue];
+        if (!err && items.count == 100 && all.count < 1000 && (NSInteger)all.count < total) {
+            [self fetchWatchlistFrom:start + 100 into:all done:done];
+            return;
+        }
         if (mc) {
             NSMutableSet *keys = [NSMutableSet set];
-            for (PXItem *it in items) if (it.ratingKey) [keys addObject:it.ratingKey];
-            self->_watchlistKeys = keys;
+            for (PXItem *it in all) if (it.ratingKey) [keys addObject:it.ratingKey];
+            self.watchlistKeys = keys;
         }
-        if (done) done(items, err);
+        if (done) done(all, err);
     }];
 }
 
