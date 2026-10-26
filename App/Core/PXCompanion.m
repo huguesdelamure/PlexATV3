@@ -122,7 +122,7 @@ static BOOL isLocalAddress(struct in_addr a);
 - (NSString *)gdmHeaders {
     return [NSString stringWithFormat:
         @"Content-Type: plex/media-player\r\nResource-Identifier: %@\r\nName: %@\r\nPort: %d\r\nProduct: PlexATV3\r\n"
-        @"Version: %@\r\nProtocol: plex\r\nProtocol-Version: 1\r\nProtocol-Capabilities: timeline,playback,playqueues\r\n"
+        @"Version: %@\r\nProtocol: plex\r\nProtocol-Version: 1\r\nProtocol-Capabilities: timeline,playback,navigation,playqueues\r\n"
         @"Device-Class: stb\r\n\r\n", PXClientId(), [self deviceName], kHTTPPort, [self version]];
 }
 
@@ -239,7 +239,7 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
     if (p[@"commandID"]) _commandID = [p[@"commandID"] integerValue];
     if ([path isEqual:@"/resources"]) {
         return [NSString stringWithFormat:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?><MediaContainer size=\"1\">"
-                @"<Player title=\"%@\" protocol=\"plex\" protocolVersion=\"1\" protocolCapabilities=\"timeline,playback,playqueues\" "
+                @"<Player title=\"%@\" protocol=\"plex\" protocolVersion=\"1\" protocolCapabilities=\"timeline,playback,navigation,playqueues\" "
                 @"machineIdentifier=\"%@\" product=\"PlexATV3\" platform=\"iOS\" platformVersion=\"8.4\" deviceClass=\"stb\"/></MediaContainer>",
                 [self deviceName], PXClientId()];
     }
@@ -256,6 +256,15 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
     if ([path isEqual:@"/player/timeline/unsubscribe"]) { [_subscribers removeObjectForKey:client]; return ok(); }
     if ([path isEqual:@"/player/timeline/poll"]) return [self timelineXML];
     if ([path isEqual:@"/player/playback/playMedia"]) { [self playMedia:p]; return ok(); }
+    if ([path hasPrefix:@"/player/navigation/"]) {
+        // The phone as a remote: same events as the IR remote.
+        NSDictionary *keys = @{ @"moveUp": @(PXRemoteUp), @"moveDown": @(PXRemoteDown), @"moveLeft": @(PXRemoteLeft),
+                                @"moveRight": @(PXRemoteRight), @"select": @(PXRemoteSelect), @"back": @(PXRemoteMenu),
+                                @"home": @(PXRemoteMenuHold) };
+        NSNumber *action = keys[[path substringFromIndex:19]];
+        if (action) [[PXCls("BRApplication") sharedApplication] postEvent:[PXCls("BREvent") eventWithAction:action.intValue value:1]];
+        return ok();
+    }
     if ([path hasPrefix:@"/player/playback/"]) {
         NSString *cmd = [path substringFromIndex:17];
         PXMusicPlayer *mp = [PXMusicPlayer shared];
