@@ -326,6 +326,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     NSNumber *v = PXSettingGet(@"volume");
     _theme.volume = 0.35 * (v ? v.floatValue : 1);
     [_theme play];
+    PXLog(@"show: theme song of '%@'", _show.title);
 }
 
 - (void)willDisappear {
