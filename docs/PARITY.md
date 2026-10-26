@@ -94,7 +94,7 @@ with a hardware/OS compromise), **no** (not possible on this device).
 
 | Feature | Status |
 |---|---|
-| Live channels (HLS from the PMS) | planned |
+| Live channels (HLS from the PMS) | planned (needs a server with a tuner to test) |
 | Guide (EPG) | limited (EPG from plex.tv, TLS) |
 | Recording schedule | planned |
 

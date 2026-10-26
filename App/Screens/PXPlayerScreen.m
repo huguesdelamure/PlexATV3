@@ -330,7 +330,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     _pendingSeek = -1;
     _errorsLogged = 0;
     _lastKnownPos = offset;
-    PXLog(@"player: '%@' %@ at %.0f s", self.item.title, _directPlay ? @"DIRECT PLAY" : @"TRANSCODE", offset);
+    PXLog(@"player: '%@' %@ at %.0f s (version %ld)", self.item.title, _directPlay ? @"DIRECT PLAY" : @"TRANSCODE", offset, (long)self.item.mediaIndex);
     PXSetText(_mode, [NSString stringWithFormat:@"%@ · %@", self.item.mediaSummary, pb[@"mode"] ?: @""]);
 
     AVPlayerItem *pi = [AVPlayerItem playerItemWithURL:pb[@"url"]];

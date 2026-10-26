@@ -170,6 +170,12 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     NSArray *all = [b arrayByAddingObjectsFromArray:more];
     if ([_buttons countFitting:all] >= all.count) [b addObjectsFromArray:more];
     else {
+        // "Plus" must fit too: the last primary buttons join it if needed.
+        PXButton *probe = [PXButton icon:PXIconInfo title:PXL(@"Plus") action:nil];
+        while (b.count > 1 && [_buttons countFitting:[b arrayByAddingObject:probe]] < b.count + 1) {
+            [more insertObject:b.lastObject atIndex:0];
+            [b removeLastObject];
+        }
         [b addObject:[PXButton icon:PXIconInfo title:PXL(@"Plus") action:^{
             PXDetailScreen *me = weak;
             NSMutableArray *rows = [NSMutableArray array];
