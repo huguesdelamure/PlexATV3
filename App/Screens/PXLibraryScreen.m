@@ -11,6 +11,7 @@
 #import "PXSettings.h"
 #import "PXAmbientPlex.h"
 #import "PXOverlay.h"
+#import "PXMusicPlayer.h"
 #import "PXListLayer.h"
 
 static const NSInteger kPage = 60;
@@ -109,7 +110,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         NSString *k = self.section[@"key"];
         [filters setArray:@[ @{ @"title": PXL(@"Artistes"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=8&sort=titleSort", k] },
                              @{ @"title": PXL(@"Albums"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=9&sort=titleSort", k] },
-                             @{ @"title": PXL(@"Ajouts récents"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=9&sort=addedAt:desc", k] } ]];
+                             @{ @"title": PXL(@"Ajouts récents"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=9&sort=addedAt:desc", k] },
+                             @{ @"title": PXL(@"Listes de lecture"), @"path": [NSString stringWithFormat:@"/playlists?playlistType=audio&sectionID=%@", k] } ]];
     }
     else if ([self.section[@"type"] isEqual:@"photo"]) {
         NSString *k = self.section[@"key"];
@@ -363,6 +365,14 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     }
 }
 
+// Tracks of this list (audio playlist…) from the chosen one on.
+- (void)playTracksFrom:(PXItem *)track {
+    NSMutableArray *tracks = [NSMutableArray array];
+    for (id it in _items) if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemTrack) [tracks addObject:it];
+    [[PXMusicPlayer shared] playTracks:tracks startAt:MAX(0, (NSInteger)[tracks indexOfObject:track]) shuffle:NO];
+    [self push:PXNowPlayingScreenNew()];
+}
+
 // Viewer over the photos of this grid that are loaded (albums skipped).
 - (void)openPhoto:(PXItem *)photo {
     NSMutableArray *photos = [NSMutableArray array];
@@ -396,11 +406,13 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
         case PXKeySelect: {
             id it = _focus < (NSInteger)_items.count ? _items[_focus] : nil;
             if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemPhoto) { [self openPhoto:it]; return YES; }
+            if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemTrack) { [self playTracksFrom:it]; return YES; }
             if ([it isKindOfClass:[PXItem class]]) [self push:PXScreenForItem(it)];
             return YES;
         }
         case PXKeyPlayPause: {
             PXItem *it = _focus < (NSInteger)_items.count ? _items[_focus] : nil;
+            if ([it isKindOfClass:[PXItem class]] && it.type == PXItemTrack) { [self playTracksFrom:it]; return YES; }
             if ([it isKindOfClass:[PXItem class]] && (it.type == PXItemMovie || it.type == PXItemEpisode || it.type == PXItemClip))
                 [self push:PXPlayerScreenNew(it, it.viewOffset)];
             return YES;

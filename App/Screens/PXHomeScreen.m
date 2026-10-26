@@ -623,7 +623,8 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     NSMutableSet *inProgress = [NSMutableSet set];   // shown in "Continuer à regarder"
     for (NSDictionary *h in hubs) {
         if (![h isKindOfClass:[NSDictionary class]]) continue;
-        if (![@[ @"movie", @"show", @"episode", @"season", @"mixed" ] containsObject:h[@"type"] ?: @""]) continue;
+        if (![@[ @"movie", @"show", @"episode", @"season", @"mixed", @"album", @"artist", @"track" ] containsObject:h[@"type"] ?: @""]) continue;
+        BOOL music = [@[ @"album", @"artist", @"track" ] containsObject:h[@"type"]];
         NSString *hid = h[@"hubIdentifier"] ?: h[@"title"] ?: @"";
         BOOL cont = [hid containsString:@"continue"];
         BOOL deck = [hid containsString:@"ondeck"];
@@ -636,8 +637,8 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
             [videos addObject:it];
         }
         if (!videos.count) continue;
-        BOOL cards = cont || deck || PXItemsPreferLandscape(videos);
-        [rows addObject:@{ @"title": h[@"title"] ?: @"", @"id": hid, @"items": videos, @"cards": @(cards) }];
+        BOOL cards = !music && (cont || deck || PXItemsPreferLandscape(videos));
+        [rows addObject:@{ @"title": h[@"title"] ?: @"", @"id": hid, @"items": videos, @"cards": @(cards), @"square": @(music) }];
     }
     PXLog(@"home: %lu shelves", (unsigned long)rows.count);
     [_fullItems removeAllObjects];   // fresh hubs: refetch full items (summary, watch state)
@@ -653,9 +654,9 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     for (NSDictionary *r in rows) {
         PXShelfLayer *s = old[r[@"id"]];
         if (!s) {
-            BOOL cards = [r[@"cards"] boolValue];
+            BOOL cards = [r[@"cards"] boolValue], square = [r[@"square"] boolValue];
             s = [[PXShelfLayer alloc] initWithTitle:r[@"title"] width:1920
-                                          imageSize:cards ? CGSizeMake(400, 225) : CGSizeMake(200, 300)
+                                          imageSize:cards ? CGSizeMake(400, 225) : (square ? CGSizeMake(240, 240) : CGSizeMake(200, 300))
                                             artwork:cards ? PXArtworkThumb : PXArtworkPoster];
             s.leftMargin = 96;
             s.name = r[@"id"];

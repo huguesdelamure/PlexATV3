@@ -214,7 +214,8 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
         done = YES;
         PXSearchScreen *me = weak;
         if (!me || serial != me->_searchSerial) return;
-        NSDictionary *titles = @{ @"movie": PXL(@"Films"), @"show": PXL(@"Séries"), @"episode": PXL(@"Épisodes"), @"season": PXL(@"Saisons") };
+        NSDictionary *titles = @{ @"movie": PXL(@"Films"), @"show": PXL(@"Séries"), @"episode": PXL(@"Épisodes"), @"season": PXL(@"Saisons"),
+                                  @"artist": PXL(@"Artistes"), @"album": PXL(@"Albums"), @"track": PXL(@"Morceaux"), @"photo": PXL(@"Photos") };
         NSMutableDictionary *byType = [NSMutableDictionary dictionary];
         for (PXServer *s in servers)
             for (NSDictionary *h in results[s.identifier]) {
@@ -224,7 +225,7 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
                 for (PXItem *it in [PXItem itemsWithJSON:h[@"Metadata"]]) if (list.count < 30) [list addObject:it];
             }
         NSMutableArray *rows = [NSMutableArray array];
-        for (NSString *type in @[ @"movie", @"show", @"season", @"episode" ])
+        for (NSString *type in @[ @"movie", @"show", @"season", @"episode", @"artist", @"album", @"track", @"photo" ])
             if ([byType[type] count]) [rows addObject:@{ @"title": titles[type], @"items": byType[type], @"type": type }];
         // Online: what is not already in the rows above (same plex:// guid).
         NSMutableSet *local = [NSMutableSet set];
@@ -254,10 +255,11 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     [_shelves removeAllObjects];
     CGFloat y = 0;
     for (NSDictionary *r in rows) {
-        BOOL episodes = [r[@"type"] isEqual:@"episode"];
+        BOOL wide = [@[ @"episode", @"photo" ] containsObject:r[@"type"]];
+        BOOL square = [@[ @"artist", @"album", @"track" ] containsObject:r[@"type"]];
         PXShelfLayer *s = [[PXShelfLayer alloc] initWithTitle:r[@"title"] width:1920
-                                                    imageSize:episodes ? CGSizeMake(352, 198) : CGSizeMake(170, 255)
-                                                      artwork:episodes ? PXArtworkThumb : PXArtworkPoster];
+                                                    imageSize:wide ? CGSizeMake(352, 198) : (square ? CGSizeMake(210, 210) : CGSizeMake(170, 255))
+                                                      artwork:wide ? PXArtworkThumb : PXArtworkPoster];
         // Results from other servers say where they are.
         s.configure = ^(PXPosterLayer *cell, PXItem *it, NSInteger i) {
             if (![it isKindOfClass:[PXItem class]] || it.server == [PXPlex shared].primaryServer || it.server.provider) return;
