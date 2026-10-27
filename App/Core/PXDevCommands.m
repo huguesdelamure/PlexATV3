@@ -9,6 +9,7 @@
 #import "PXRouter.h"
 #import "PXPlex.h"
 #import <objc/message.h>
+#import <dlfcn.h>
 #import "PXServer.h"
 #import "PXItem.h"
 #import "PXLog.h"
@@ -64,6 +65,37 @@ void PXRegisterDevCommands(void) {
         if (!a.count) return;
         id stack = [[PXCls("BRApplicationStackManager") singleton] stack];
         [stack pushController:PXHostControllerForScreen(PXScreenForRatingKey(a[0]))];
+    });
+    // cec: IORegistry entries whose class or name looks like CEC / HDMI
+    // (is there a CEC controller to talk to?). IOKit resolved at run time.
+    PXDebugRegister(@"cec", ^(NSArray *a) {
+        void *h = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY);
+        if (!h) { PXLog(@"cec: no IOKit"); return; }
+        typedef unsigned int io_t;
+        io_t (*getRoot)(unsigned int) = dlsym(h, "IORegistryGetRootEntry");
+        int (*createIter)(io_t, const char *, unsigned int, io_t *) = dlsym(h, "IORegistryEntryCreateIterator");
+        io_t (*next)(io_t) = dlsym(h, "IOIteratorNext");
+        int (*getClass)(io_t, char *) = dlsym(h, "IOObjectGetClass");
+        int (*getName)(io_t, char *) = dlsym(h, "IORegistryEntryGetName");
+        int (*release)(io_t) = dlsym(h, "IOObjectRelease");
+        unsigned int *masterPort = dlsym(h, "kIOMasterPortDefault");
+        if (!getRoot || !createIter || !next || !getClass || !getName) { PXLog(@"cec: IOKit symbols missing"); return; }
+        io_t iter = 0;
+        if (createIter(getRoot(masterPort ? *masterPort : 0), "IOService", 1 /* recursive */, &iter) != 0) { PXLog(@"cec: no iterator"); return; }
+        NSUInteger total = 0, hits = 0;
+        for (io_t o; (o = next(iter)); release(o)) {
+            char cls[128] = {0}, name[128] = {0};
+            getClass(o, cls); getName(o, name);
+            total++;
+            NSString *c = @(cls), *n = @(name);
+            if ([c.lowercaseString containsString:@"cec"] || [n.lowercaseString containsString:@"cec"] ||
+                [c.lowercaseString containsString:@"hdmi"] || [n.lowercaseString containsString:@"hdmi"]) {
+                hits++;
+                PXLog(@"cec: %@ (%@)", c, n);
+            }
+        }
+        release(iter);
+        PXLog(@"cec: %lu matching entries out of %lu", (unsigned long)hits, (unsigned long)total);
     });
     // saver: is the screensaver showing (no screen capture needed).
     PXDebugRegister(@"saver", ^(NSArray *a) {
