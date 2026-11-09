@@ -113,7 +113,15 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
     __weak PXHomeScreen *weak = self;
     _clockTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(_clockTimer, DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC, NSEC_PER_SEC);
-    dispatch_source_set_event_handler(_clockTimer, ^{ PXHomeScreen *me = weak; if (me) PXSetText(me->_clock, PXWallClock([NSDate date])); });
+    __block NSInteger ticks = 0;
+    dispatch_source_set_event_handler(_clockTimer, ^{
+        PXHomeScreen *me = weak;
+        if (!me) return;
+        PXSetText(me->_clock, PXWallClock([NSDate date]));
+        // Every 2 min while the home is on screen: what was watched on other
+        // clients (continue watching, on deck) shows up without leaving it.
+        if (++ticks % 12 == 0 && me->_shownTab == 0 && [me isOnTop] && me->_loaded) [me reload];
+    });
     dispatch_resume(_clockTimer);
 }
 

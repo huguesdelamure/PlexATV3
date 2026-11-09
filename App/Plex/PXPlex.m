@@ -62,6 +62,9 @@ static NSArray *extraAnchors(void) {
     if ((self = [super init])) {
         NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration defaultSessionConfiguration];
         cfg.timeoutIntervalForRequest = 20;
+        // Watch state changes on other clients: never answer from a local cache.
+        cfg.URLCache = nil;
+        cfg.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
         cfg.HTTPMaximumConnectionsPerHost = 4;
         // Callbacks (and JSON parsing, slow on the A5) off the main thread;
         // results are handed back on the main queue.
