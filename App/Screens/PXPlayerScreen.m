@@ -22,6 +22,7 @@
 #import "PXLog.h"
 #import "PXBif.h"
 #import "PXSettings.h"
+#import "PXPlayQueue.h"
 #import "PXTrackPrefs.h"
 
 static const CGFloat kBarX = 110, kBarW = 1700, kBarY = 968;
@@ -51,6 +52,9 @@ static const CGSize kPreview = { 384, 216 };
     CALayer *_backdrop;             // title artwork while the stream starts
     CALayer *_pauseBadge;           // centred pause glyph while paused by the user
     CALayer *_skipButton;                 // "Passer l'intro / le générique"
+    NSMutableSet *_autoSkipped;           // markers already skipped automatically (start times)
+    NSDate *_sleepAt;                     // sleep timer: stop playback at this time
+    BOOL _sleepAtEnd;                     // sleep timer: stop at the end of this item
     CATextLayer *_skipText;
     NSDictionary *_activeMarker;
     PXBif *_bif;
@@ -427,6 +431,12 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     AVPlayerItem *pi = _player.currentItem;
     // No screensaver nor idle sleep while the video plays (paused: allowed).
     if (_player.rate > 0) PXKeepAwake(YES); else PXAllowSleep();
+    if (_sleepAt && [_sleepAt timeIntervalSinceNow] <= 0 && !_gone) {
+        PXLog(@"player: sleep timer reached");
+        _sleepAt = nil;
+        [self pop];
+        return;
+    }
     if (!_failed && (pi.status == AVPlayerItemStatusFailed || _player.status == AVPlayerStatusFailed)) {
         [self fail:(pi.error ?: _player.error).localizedDescription ?: PXL(@"erreur inconnue")];
         return;
@@ -543,6 +553,38 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     }
     PXAnim(0.3, ^{ self->_skipButton.opacity = active ? 1 : 0; });
     if (active) PXSpringScale(_skipButton, 1.0);
+    // Réglages > Passer l'intro / le générique : Automatique. Once per marker,
+    // so seeking back into it lets the user watch it.
+    BOOL credits = [active[@"type"] isEqual:@"credits"];
+    if (active && [PXSettingGet(credits ? @"skipCredits" : @"skipIntro") isEqual:@"auto"] && !_scrubbing) {
+        if (!_autoSkipped) _autoSkipped = [NSMutableSet set];
+        NSNumber *key = active[@"start"] ?: @0;
+        if (![_autoSkipped containsObject:key]) {
+            [_autoSkipped addObject:key];
+            PXLog(@"player: auto skip %@", active[@"type"]);
+            __weak PXPlayerScreen *weak = self;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 600 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ [weak skipMarker]; });
+        }
+    }
+}
+
+#pragma mark - Sleep timer
+
+- (NSString *)sleepLabel {
+    if (_sleepAtEnd) return self.item.type == PXItemEpisode ? PXL(@"Fin de l'épisode") : PXL(@"Fin du film");
+    if (!_sleepAt) return PXL(@"Désactivée");
+    return PXLF(@"%ld min", (long)MAX(1, lround([_sleepAt timeIntervalSinceNow] / 60)));
+}
+
+- (void)nextSleepTimer {
+    // Off -> 30 -> 60 -> 90 min -> end of this item -> off
+    NSTimeInterval left = _sleepAt ? [_sleepAt timeIntervalSinceNow] : 0;
+    if (_sleepAtEnd) { _sleepAtEnd = NO; _sleepAt = nil; }
+    else if (!_sleepAt) _sleepAt = [NSDate dateWithTimeIntervalSinceNow:30 * 60];
+    else if (left <= 30 * 60 + 5) _sleepAt = [NSDate dateWithTimeIntervalSinceNow:60 * 60];
+    else if (left <= 60 * 60 + 5) _sleepAt = [NSDate dateWithTimeIntervalSinceNow:90 * 60];
+    else { _sleepAt = nil; _sleepAtEnd = YES; }
+    PXLog(@"player: sleep timer %@", [self sleepLabel]);
 }
 
 - (void)skipMarker {
@@ -700,6 +742,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     if (it.chapters.count)
         [rows addObject:[PXListRow title:PXL(@"Chapitres") value:[NSString stringWithFormat:@"%lu", (unsigned long)it.chapters.count] action:^{ [weak reopen:^{ [weak showChapters]; }]; }]];
     [rows addObject:[PXListRow title:PXL(@"Volume") value:PXLF(@"%d %%", (int)lroundf([self storedVolume] * 100)) action:nil]];
+    [rows addObject:[PXListRow title:PXL(@"Minuterie de sommeil") value:[self sleepLabel] action:^{ [weak nextSleepTimer]; [weak reopen:^{ [weak showOptions]; }]; }]];
     PXListRow *info = [PXListRow title:_directPlay ? PXL(@"Lecture directe") : PXL(@"Converti par le serveur") value:@"" action:nil];
     info.enabled = NO;
     [rows addObject:info];
@@ -730,6 +773,10 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     PXLog(@"player: end of '%@'", self.item.title);
     [self report:@"stopped"];
     [[PXPlex shared] setWatched:YES item:self.item.raw];
+    if (_sleepAtEnd) { PXLog(@"player: sleep timer, end of item"); [self pop]; return; }
+    // Titles queued from their page come before the next episode.
+    PXItem *queued = self.queue ? nil : [[PXPlayQueue shared] popNext];
+    if (queued) { [self offerNext:queued]; return; }
     if (self.queue) {
         NSUInteger i = [self.queue indexOfObjectPassingTest:^BOOL(PXItem *e, NSUInteger n, BOOL *stop) { return [e.ratingKey isEqual:self.item.ratingKey]; }];
         if (i == NSNotFound || i + 1 >= self.queue.count) { [self pop]; return; }
@@ -773,11 +820,11 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     [[PXImageCache shared] loadURL:[next.server imageURL:next.thumb width:360 height:202] size:CGSizeMake(360, 202) radius:12
                               done:^(CGImageRef img) { if (img) { PXFadeContents(thumb, 0.3); thumb.contents = (__bridge id)img; thumb.backgroundColor = NULL; } }];
     CATextLayer *eyebrow = PXText(PXFontSemi(22), PXColorAccent());
-    eyebrow.string = PXL(@"ÉPISODE SUIVANT");
+    eyebrow.string = next.type == PXItemEpisode && [next.grandparentRatingKey isEqual:self.item.grandparentRatingKey] ? PXL(@"ÉPISODE SUIVANT") : PXL(@"À SUIVRE");
     eyebrow.frame = CGRectMake(410, 30, 340, 30);
     CATextLayer *title = PXText(PXFontBold(30), PXColorText());
     title.wrapped = YES;
-    title.string = [NSString stringWithFormat:@"%@ · %@", next.episodeCode, next.title];
+    title.string = next.type == PXItemEpisode ? [NSString stringWithFormat:@"%@ · %@", next.episodeCode, next.title] : (next.title ?: @"");
     title.frame = CGRectMake(410, 66, 340, 80);
     _nextText = PXText(PXFontMedium(24), PXColorTextDim());
     _nextText.frame = CGRectMake(486, 178, 270, 32);
@@ -918,7 +965,8 @@ PXScreen *PXPlayerScreenNewQueue(NSArray *items) {
     PXPlayerScreen *s = [PXPlayerScreen new];
     s.item = items.firstObject;
     s.queue = items;
-    s.startOffset = 0;
+    PXItem *first = items.firstObject;
+    s.startOffset = first.viewOffset > 30 ? first.viewOffset : 0;   // a season resumes where it was
     [s setup];
     return s;
 }

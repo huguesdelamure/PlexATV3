@@ -15,6 +15,7 @@
 #import "PXShelfLayer.h"
 #import "PXPlex.h"
 #import "PXBackRow.h"
+#import "PXPlayQueue.h"
 #import "PXListLayer.h"
 #import "PXItem.h"
 #import "PXLog.h"
@@ -170,6 +171,10 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     NSMutableArray *more = [NSMutableArray arrayWithObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Vu") : PXL(@"Marquer vu") action:^{ [weak toggleWatched]; }]];
     if (watch) [more addObject:watch];
     [more addObject:[PXButton icon:PXIconStar title:stars action:^{ [weak pickRating]; }]];
+    if (it.type == PXItemMovie || it.type == PXItemEpisode) {
+        [more addObject:[PXButton icon:PXIconNext title:PXL(@"Lire ensuite") action:^{ [[PXPlayQueue shared] playNext:weak.item]; }]];
+        [more addObject:[PXButton icon:PXIconNext title:PXL(@"Ajouter à la file") action:^{ [[PXPlayQueue shared] add:weak.item]; }]];
+    }
     // Not enough room for everything: the secondary actions go behind "Plus".
     NSArray *all = [b arrayByAddingObjectsFromArray:more];
     if ([_buttons countFitting:all] >= all.count) [b addObjectsFromArray:more];

@@ -97,6 +97,14 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
     [rows addObjectsFromArray:@[
         [PXListRow title:PXL(@"Langue") value:[self languageLabel] action:^{ [weak nextLanguage]; }],
         [PXListRow title:PXL(@"Clavier") value:[self keyboardLabel] action:^{ [weak nextKeyboard]; }],
+        [PXListRow title:PXL(@"Passer l'intro") value:[PXSettingGet(@"skipIntro") isEqual:@"auto"] ? PXL(@"Automatique") : PXL(@"Manuel") action:^{
+            PXSettingSet(@"skipIntro", [PXSettingGet(@"skipIntro") isEqual:@"auto"] ? nil : @"auto");
+            [weak rebuildKeepingFocus];
+        }],
+        [PXListRow title:PXL(@"Passer le générique") value:[PXSettingGet(@"skipCredits") isEqual:@"auto"] ? PXL(@"Automatique") : PXL(@"Manuel") action:^{
+            PXSettingSet(@"skipCredits", [PXSettingGet(@"skipCredits") isEqual:@"auto"] ? nil : @"auto");
+            [weak rebuildKeepingFocus];
+        }],
         [PXListRow title:PXL(@"Taille des sous-titres") value:[self subtitleSizeLabel] action:^{
             NSArray *steps = @[ @80, @100, @125, @150 ];
             NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"subtitleSize") intValue] ?: 100)];

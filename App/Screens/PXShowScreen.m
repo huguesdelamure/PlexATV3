@@ -145,6 +145,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
             if (n) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? n.viewOffset : 0)];
         }]];
     }
+    [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lire la saison") action:^{ [weak playSeason]; }]];
     [b addObject:[PXButton icon:PXIconNext title:PXL(@"Aléatoire") action:^{ [weak shuffleShow]; }]];
     [b addObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Série vue") : PXL(@"Marquer la série vue") action:^{
         PXShowScreen *me = weak;
@@ -300,6 +301,15 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 - (void)didAppear {
     [super didAppear];
     if (_loadedSeason) { [self loadShow]; }   // refresh progress after playback
+}
+
+// Episodes of the season shown, in order, from the first one not watched.
+- (void)playSeason {
+    NSArray *eps = _episodes.items;
+    if (!eps.count) return;
+    NSUInteger first = [eps indexOfObjectPassingTest:^BOOL(PXItem *e, NSUInteger i, BOOL *stop) { return !e.watched; }];
+    if (first == NSNotFound) first = 0;
+    [self push:PXPlayerScreenNewQueue([eps subarrayWithRange:NSMakeRange(first, eps.count - first)])];
 }
 
 // Every episode of the show in random order.
