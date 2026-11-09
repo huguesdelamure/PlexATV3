@@ -12,6 +12,7 @@
 #import <dlfcn.h>
 #import "PXServer.h"
 #import "PXItem.h"
+#import "PXSettings.h"
 #import "PXLog.h"
 #import <objc/runtime.h>
 
@@ -109,10 +110,58 @@ void PXRegisterDevCommands(void) {
                     PXItem *full = m ? [PXItem itemWithJSON:m] : nil;
                     NSMutableArray *kinds = [NSMutableArray array];
                     for (NSDictionary *mk in full.markers) [kinds addObject:[NSString stringWithFormat:@"%@ %.0f-%.0f", mk[@"type"], [mk[@"start"] doubleValue], [mk[@"end"] doubleValue]]];
-                    PXLog(@"markers: '%@' %@ -> %@", it.grandparentTitle ?: it.title, it.episodeCode ?: @"", kinds.count ? [kinds componentsJoinedByString:@", "] : @"none");
+                    PXLog(@"markers: [%@ offset=%.0f views=%@] '%@' %@ -> %@", it.ratingKey, full.viewOffset, full.raw[@"viewCount"] ?: @0, it.grandparentTitle ?: it.title, it.episodeCode ?: @"", kinds.count ? [kinds componentsJoinedByString:@", "] : @"none");
                 }];
             }
         }];
+    });
+    // apitest: the server APIs behind history, library hubs, cinema trailers and
+    // artist pages, read only.
+    PXDebugRegister(@"apitest", ^(NSArray *a) {
+        PXServer *sv = [PXPlex shared].primaryServer;
+        [sv get:@"/status/sessions/history/all?sort=viewedAt:desc&accountID=1&X-Plex-Container-Size=5" done:^(NSDictionary *mc, NSError *e) {
+            PXLog(@"apitest: history %lu %@", (unsigned long)[mc[@"Metadata"] count], e.localizedDescription ?: @"ok");
+        }];
+        [sv get:@"/library/sections" done:^(NSDictionary *mc, NSError *e) {
+            for (NSDictionary *d in mc[@"Directory"]) {
+                NSString *k = [d[@"key"] description], *type = d[@"type"];
+                if ([type isEqual:@"movie"]) {
+                    [sv get:[NSString stringWithFormat:@"/hubs/sections/%@?count=5", k] done:^(NSDictionary *h, NSError *e2) {
+                        NSUInteger withItems = 0;
+                        for (NSDictionary *hub in h[@"Hub"]) if ([hub[@"Metadata"] count]) withItems++;
+                        PXLog(@"apitest: hubs of '%@': %lu rows, %lu with titles %@", d[@"title"], (unsigned long)[h[@"Hub"] count], (unsigned long)withItems, e2.localizedDescription ?: @"");
+                    }];
+                    [sv get:[NSString stringWithFormat:@"/library/sections/%@/all?type=1&X-Plex-Container-Size=1", k] done:^(NSDictionary *m1, NSError *e3) {
+                        NSDictionary *movie = [m1[@"Metadata"] firstObject];
+                        if (movie) [sv trailersBefore:movie count:2 done:^(NSArray *items, NSError *e4) {
+                            NSMutableArray *types = [NSMutableArray array];
+                            for (PXItem *it in items) [types addObject:[NSString stringWithFormat:@"%@:%@", it.raw[@"type"], it.title]];
+                            PXLog(@"apitest: trailers queue %@", [types componentsJoinedByString:@" | "]);
+                        }];
+                    }];
+                }
+                if ([type isEqual:@"artist"]) {
+                    [sv get:[NSString stringWithFormat:@"/library/sections/%@/all?type=8&X-Plex-Container-Size=1", k] done:^(NSDictionary *m1, NSError *e3) {
+                        NSDictionary *artist = [m1[@"Metadata"] firstObject];
+                        if (!artist) return;
+                        NSString *p = [NSString stringWithFormat:@"/library/sections/%@/all?type=10&artist.id=%@&sort=viewCount:desc&X-Plex-Container-Size=5", k, artist[@"ratingKey"]];
+                        [sv get:p done:^(NSDictionary *t, NSError *e4) {
+                            NSMutableArray *names = [NSMutableArray array];
+                            for (NSDictionary *tr in t[@"Metadata"]) [names addObject:[NSString stringWithFormat:@"%@ (%@)", tr[@"title"], tr[@"grandparentTitle"]]];
+                            PXLog(@"apitest: popular tracks of '%@': %@ %@", artist[@"title"], [names componentsJoinedByString:@", "], e4.localizedDescription ?: @"");
+                        }];
+                    }];
+                }
+            }
+        }];
+    });
+    // set <key> <value|->: change a setting without going through the menus.
+    PXDebugRegister(@"set", ^(NSArray *a) {
+        if (a.count < 2) return;
+        id v = [a[1] isEqual:@"-"] ? nil : a[1];
+        if ([v rangeOfCharacterFromSet:[[NSCharacterSet decimalDigitCharacterSet] invertedSet]].location == NSNotFound) v = @([v intValue]);
+        PXSettingSet(a[0], v);
+        PXLog(@"set %@ = %@", a[0], v ?: @"(none)");
     });
     // saver: is the screensaver showing (no screen capture needed).
     PXDebugRegister(@"saver", ^(NSArray *a) {

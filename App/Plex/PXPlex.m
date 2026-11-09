@@ -144,6 +144,16 @@ static NSArray *extraAnchors(void) {
         [req setValue:@"0" forHTTPHeaderField:@"X-Plex-Container-Start"];
         [req setValue:@"2000" forHTTPHeaderField:@"X-Plex-Container-Size"];
     }
+    // Some PMS routes (watch history) ignore paging in the query string: send it
+    // as headers too.
+    for (NSString *q in [req.URL.query componentsSeparatedByString:@"&"]) {
+        if ([q hasPrefix:@"X-Plex-Container-Size="] || [q hasPrefix:@"X-Plex-Container-Start="]) {
+            NSArray *kv = [q componentsSeparatedByString:@"="];
+            if (kv.count == 2) [req setValue:kv[1] forHTTPHeaderField:kv[0]];
+        }
+    }
+    if ([req valueForHTTPHeaderField:@"X-Plex-Container-Size"] && ![req valueForHTTPHeaderField:@"X-Plex-Container-Start"])
+        [req setValue:@"0" forHTTPHeaderField:@"X-Plex-Container-Start"];
     [extra enumerateKeysAndObjectsUsingBlock:^(id k, id v, BOOL *stop) { [req setValue:v forHTTPHeaderField:k]; }];
     if (token) [req setValue:token forHTTPHeaderField:@"X-Plex-Token"];
     [[self.session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
