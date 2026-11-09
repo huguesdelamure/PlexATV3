@@ -23,6 +23,7 @@
 #import "PXBif.h"
 #import "PXSettings.h"
 #import "PXPlayQueue.h"
+#import "PXBackRow.h"
 #import "PXTrackPrefs.h"
 
 static const CGFloat kBarX = 110, kBarW = 1700, kBarY = 968;
@@ -772,7 +773,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     _ended = YES;
     PXLog(@"player: end of '%@'", self.item.title);
     [self report:@"stopped"];
-    [[PXPlex shared] setWatched:YES item:self.item.raw];
+    if (self.item.type != PXItemClip) [[PXPlex shared] setWatched:YES item:self.item.raw];   // not trailers
     if (_sleepAtEnd) { PXLog(@"player: sleep timer, end of item"); [self pop]; return; }
     // Titles queued from their page come before the next episode.
     PXItem *queued = self.queue ? nil : [[PXPlayQueue shared] popNext];
@@ -780,9 +781,12 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     if (self.queue) {
         NSUInteger i = [self.queue indexOfObjectPassingTest:^BOOL(PXItem *e, NSUInteger n, BOOL *stop) { return [e.ratingKey isEqual:self.item.ratingKey]; }];
         if (i == NSNotFound || i + 1 >= self.queue.count) { [self pop]; return; }
+        // After a trailer: straight on, no countdown.
+        if (self.item.type == PXItemClip) { _next = self.queue[i + 1]; [self playNext]; return; }
         [self offerNext:self.queue[i + 1]];
         return;
     }
+    if (self.item.type == PXItemMovie) { [self offerSimilar]; return; }
     if (self.item.type != PXItemEpisode || !self.item.grandparentRatingKey) { [self pop]; return; }
     __weak PXPlayerScreen *weak = self;
     NSString *path = [NSString stringWithFormat:@"/library/metadata/%@/allLeaves", self.item.grandparentRatingKey];
@@ -793,6 +797,30 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
         NSUInteger i = [eps indexOfObjectPassingTest:^BOOL(PXItem *e, NSUInteger n, BOOL *stop) { return [e.ratingKey isEqual:me.item.ratingKey]; }];
         if (i == NSNotFound || i + 1 >= eps.count) { [me pop]; return; }
         [me offerNext:eps[i + 1]];
+    }];
+}
+
+// End of a movie: titles like it, opened in place of the player; closing
+// the panel leaves the player.
+- (void)offerSimilar {
+    __weak PXPlayerScreen *weak = self;
+    PXItem *movie = self.item;
+    [movie.server get:[NSString stringWithFormat:@"/library/metadata/%@/similar?count=8", movie.ratingKey] done:^(NSDictionary *mc, NSError *err) {
+        PXPlayerScreen *me = weak;
+        if (!me || me->_gone) return;
+        NSArray *similar = [PXItem itemsWithJSON:mc[@"Metadata"]];
+        if (!similar.count) { [me pop]; return; }
+        NSMutableArray *rows = [NSMutableArray array];
+        for (PXItem *s in similar) {
+            [rows addObject:[PXListRow title:s.title ?: @"" value:s.year ? [@(s.year) stringValue] : @"" action:^{
+                PXPlayerScreen *me2 = weak;
+                if (!me2) return;
+                me2->_overlay.onClose = nil;
+                [[me2.host stack] swapController:PXHostControllerForScreen(PXScreenForItem(s))];
+            }]];
+        }
+        [me openOverlay:PXL(@"À regarder ensuite") rows:rows];
+        me->_overlay.onClose = ^{ PXPlayerScreen *me3 = weak; if (me3) { me3->_overlay = nil; [me3 pop]; } };
     }];
 }
 

@@ -231,12 +231,13 @@ static BOOL canDirectPlay(NSDictionary *media) {
     BOOL defaultTracks = !it.selectedSubtitle && (!it.selectedAudio || it.selectedAudio.streamID == [it.audioStreams.firstObject streamID]);
     // Extras (trailers…) are hosted online: the iOS 8 TLS stack fails on their
     // CDN, the server fetches them instead.
-    BOOL online = it.type == PXItemClip;
+    BOOL online = it.type == PXItemClip || [PXSettingGet(@"audioBoost") intValue] > 100;   // boost: through the server
     if (media && part[@"key"] && canDirectPlay(media) && defaultTracks && !online) {
         NSString *u = [NSString stringWithFormat:@"%@%@?%@", _uri, part[@"key"], [self plexQuery]];
         done(@{ @"url": [NSURL URLWithString:u], @"directPlay": @YES, @"mode": PXL(@"Lecture directe") }, nil);
         return;
     }
+    int boost = [PXSettingGet(@"audioBoost") intValue] ?: 100;   // Réglages > Boost audio
     NSString *session = [[NSUUID UUID] UUIDString].lowercaseString;
     NSString *profile =
         @"add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264&audioCodec=aac&replace=true)"
@@ -245,11 +246,12 @@ static BOOL canDirectPlay(NSDictionary *media) {
         @"+add-limitation(scope=videoCodec&scopeName=h264&type=upperBound&name=video.height&value=1080)";
     NSString *query = [NSString stringWithFormat:
         @"path=%@&mediaIndex=%ld&partIndex=0&protocol=hls&fastSeek=1"
-        @"&directPlay=0&directStream=1&directStreamAudio=1&videoQuality=100&maxVideoBitrate=%d&videoResolution=1920x1080"
-        @"&subtitles=burn&subtitleSize=%d&audioBoost=100&location=wan&offset=%.0f&session=%@&X-Plex-Session-Identifier=%@"
+        @"&directPlay=0&directStream=1&directStreamAudio=%d&videoQuality=100&maxVideoBitrate=%d&videoResolution=1920x1080"
+        @"&subtitles=burn&subtitleSize=%d&audioBoost=%d&location=wan&offset=%.0f&session=%@&X-Plex-Session-Identifier=%@"
         @"&X-Plex-Client-Profile-Extra=%@",
         PXEncode([@"/library/metadata/" stringByAppendingString:metadata[@"ratingKey"] ?: @""]), (long)mediaIndex,
-        [PXSettingGet(@"maxBitrate") intValue] ?: 8000, [PXSettingGet(@"subtitleSize") intValue] ?: 100, seconds, session, session, PXEncode(profile)];
+        boost > 100 ? 0 : 1,   // a boost needs the audio converted, not copied
+        [PXSettingGet(@"maxBitrate") intValue] ?: 8000, [PXSettingGet(@"subtitleSize") intValue] ?: 100, boost, seconds, session, session, PXEncode(profile)];
     // Current PMS refuses start.m3u8 for a session that has not asked for a
     // decision first ("session lacking decision"): ask, then start.
     NSString *base = _uri;
@@ -338,6 +340,22 @@ static BOOL canDirectPlay(NSDictionary *media) {
     if (!session) return;
     NSString *path = [NSString stringWithFormat:@"/music/:/transcode/universal/stop?session=%@&X-Plex-Session-Identifier=%@", session, session];
     [self request:@"GET" path:path timeout:10 headers:@{ @"X-Plex-Session-Identifier": session } done:nil];
+}
+
+// Play queue of the server with its cinema trailers before the movie (count
+// set in Réglages; which trailers is the server's "cinema trailers" setting).
+- (void)trailersBefore:(NSDictionary *)movie count:(int)count done:(PXJSONBlock)done {
+    NSString *uri = [NSString stringWithFormat:@"server://%@/com.plexapp.plugins.library/library/metadata/%@", self.identifier, movie[@"ratingKey"]];
+    NSString *path = [NSString stringWithFormat:@"/playQueues?type=video&uri=%@&extrasPrefixCount=%d&shuffle=0&continuous=0&repeat=0&includeChapters=1&includeMarkers=1",
+                      PXEncode(uri), count];
+    NSString *sid = self.identifier;
+    [self request:@"POST" path:path timeout:20 headers:nil done:^(id json, NSError *err) {
+        id mc = [json isKindOfClass:[NSDictionary class]] ? json[@"MediaContainer"] : nil;
+        tagServer(mc, sid);
+        NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
+        PXLog(@"playqueue: %lu items (%d trailers asked) %@", (unsigned long)items.count, count, err.localizedDescription ?: @"");
+        done(items, err);
+    }];
 }
 
 - (void)reportTimeline:(NSDictionary *)metadata state:(NSString *)state timeMs:(long long)t {

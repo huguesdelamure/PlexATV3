@@ -16,6 +16,7 @@
 #import "PXPlex.h"
 #import "PXBackRow.h"
 #import "PXPlayQueue.h"
+#import "PXSettings.h"
 #import "PXListLayer.h"
 #import "PXItem.h"
 #import "PXLog.h"
@@ -381,7 +382,21 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
 }
 
 - (void)play:(BOOL)resume {
-    [self push:PXPlayerScreenNew(self.item, resume ? self.item.viewOffset : 0)];
+    PXItem *it = self.item;
+    int trailers = [PXSettingGet(@"cinemaTrailers") intValue];
+    // A movie from the start, Réglages > Bandes-annonces: the server's cinema
+    // trailers first, then the movie.
+    if (!resume && trailers > 0 && it.type == PXItemMovie) {
+        __weak PXDetailScreen *weak = self;
+        [it.server trailersBefore:it.raw count:trailers done:^(NSArray *items, NSError *err) {
+            PXDetailScreen *me = weak;
+            if (!me) return;
+            if (items.count > 1) [me push:PXPlayerScreenNewQueue(items)];
+            else [me push:PXPlayerScreenNew(it, 0)];
+        }];
+        return;
+    }
+    [self push:PXPlayerScreenNew(it, resume ? it.viewOffset : 0)];
 }
 
 - (void)closeOverlay { [_overlay close]; }

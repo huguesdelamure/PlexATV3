@@ -105,6 +105,16 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
             PXSettingSet(@"skipCredits", [PXSettingGet(@"skipCredits") isEqual:@"auto"] ? nil : @"auto");
             [weak rebuildKeepingFocus];
         }],
+        [PXListRow title:PXL(@"Bandes-annonces avant le film") value:[PXSettingGet(@"cinemaTrailers") intValue] ? [PXSettingGet(@"cinemaTrailers") description] : PXL(@"Aucune") action:^{
+            PXSettingSet(@"cinemaTrailers", @(([PXSettingGet(@"cinemaTrailers") intValue] + 1) % 4));
+            [weak rebuildKeepingFocus];
+        }],
+        [PXListRow title:PXL(@"Boost audio") value:[self boostLabel] action:^{
+            NSArray *steps = @[ @100, @150, @200, @300 ];
+            NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"audioBoost") intValue] ?: 100)];
+            PXSettingSet(@"audioBoost", steps[(i == NSNotFound ? 0 : i + 1) % steps.count]);
+            [weak rebuildKeepingFocus];
+        }],
         [PXListRow title:PXL(@"Taille des sous-titres") value:[self subtitleSizeLabel] action:^{
             NSArray *steps = @[ @80, @100, @125, @150 ];
             NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"subtitleSize") intValue] ?: 100)];
@@ -156,6 +166,16 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
         case 125: return PXL(@"Grande");
         case 150: return PXL(@"Très grande");
         default: return PXL(@"Normale");
+    }
+}
+
+// Volume boost of the server conversion (dialogue at night, quiet sources).
+- (NSString *)boostLabel {
+    switch ([PXSettingGet(@"audioBoost") intValue]) {
+        case 150: return PXL(@"Léger");
+        case 200: return PXL(@"Moyen");
+        case 300: return PXL(@"Fort");
+        default: return PXL(@"Désactivé");
     }
 }
 

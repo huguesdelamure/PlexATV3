@@ -40,6 +40,8 @@
 // Playback (see PXPlex.h)
 - (void)preparePlayback:(NSDictionary *)metadata offset:(double)seconds done:(PXJSONBlock)done;
 - (void)reportTimeline:(NSDictionary *)metadata state:(NSString *)state timeMs:(long long)t;
+// Cinema trailers then the movie (json: array of PXItem, the movie last).
+- (void)trailersBefore:(NSDictionary *)movie count:(int)count done:(PXJSONBlock)done;
 - (void)stopTranscode:(NSString *)session;
 - (void)setWatched:(BOOL)watched item:(NSDictionary *)metadata;
 - (void)selectStreamsForPart:(NSDictionary *)part audio:(NSInteger)audioID subtitle:(NSInteger)subtitleID done:(PXJSONBlock)done;
