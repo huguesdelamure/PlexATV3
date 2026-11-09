@@ -3,6 +3,7 @@
 #import "PXRouter.h"
 #import "PXUI.h"
 #import "PXListLayer.h"
+#import "PXShelfLayer.h"
 #import "PXOverlay.h"
 #import "PXAmbientPlex.h"
 #import "PXImageCache.h"
@@ -324,6 +325,108 @@ PXScreen *PXNowPlayingScreenNew(void) {
 PXScreen *PXAlbumScreenNew(PXItem *album) {
     PXAlbumScreen *s = [PXAlbumScreen new];
     s.album = album;
+    [s setup];
+    return s;
+}
+
+#pragma mark - Artist
+
+// Artist page: photo, name and biography, albums, most played tracks.
+@interface PXArtistScreen : PXScreen
+@property (nonatomic, strong) PXItem *artist;
+@end
+
+@implementation PXArtistScreen {
+    PXAmbientLayer *_ambient;
+    CALayer *_rows;
+    NSMutableArray *_shelves;
+    NSInteger _index;
+}
+
+- (void)setup {
+    self.layer.backgroundColor = PXColorBackground();
+    _ambient = [[PXAmbientLayer alloc] initWithFrame:self.layer.bounds style:PXAmbientBlurOnly];
+    [self.layer addSublayer:_ambient];
+    [_ambient showItem:self.artist];
+    CALayer *photo = PXCover(self.artist, 260);
+    photo.cornerRadius = 130;
+    photo.position = CGPointMake(110 + 130, 70 + 130);
+    [self.layer addSublayer:photo];
+    [self.layer addSublayer:PXAsyncLabel(self.artist.title ?: @"", PXFontHeavy(64), PXColorText(), CGRectMake(420, 80, 1400, 80), 1, NO)];
+    _rows = [CALayer layer];
+    _rows.anchorPoint = CGPointZero;
+    _rows.position = CGPointMake(0, 380);
+    [self.layer addSublayer:_rows];
+    _shelves = [NSMutableArray array];
+    PXServer *sv = self.artist.server;
+    __weak PXArtistScreen *weak = self;
+    // Biography (full metadata), then the albums and the most played tracks.
+    [sv metadata:self.artist.ratingKey done:^(NSDictionary *m, NSError *err) {
+        PXArtistScreen *me = weak;
+        NSString *bio = [m[@"summary"] isKindOfClass:[NSString class]] ? m[@"summary"] : nil;
+        if (me && bio.length) [me.layer addSublayer:PXAsyncLabel(bio, PXFont(26), PXColorWhite(0.8), CGRectMake(420, 175, 1380, 140), 4, NO)];
+        NSString *sid = [m[@"librarySectionID"] description] ?: me.artist.librarySectionID;
+        if (!me || !sid.length) return;
+        NSString *path = [NSString stringWithFormat:@"/library/sections/%@/all?type=10&artist.id=%@&sort=viewCount:desc&X-Plex-Container-Size=20", sid, me.artist.ratingKey];
+        [sv get:path done:^(NSDictionary *mc, NSError *e2) {
+            [weak addRow:PXL(@"Titres populaires") items:[PXItem itemsWithJSON:mc[@"Metadata"]] at:1];
+        }];
+    }];
+    [sv get:[NSString stringWithFormat:@"/library/metadata/%@/children", self.artist.ratingKey] done:^(NSDictionary *mc, NSError *err) {
+        [weak addRow:PXL(@"Albums") items:[PXItem itemsWithJSON:mc[@"Metadata"]] at:0];
+    }];
+}
+
+- (void)addRow:(NSString *)title items:(NSArray *)items at:(NSInteger)order {
+    if (!items.count) return;
+    PXShelfLayer *s = [[PXShelfLayer alloc] initWithTitle:title width:1920 imageSize:CGSizeMake(220, 220) artwork:PXArtworkPoster];
+    s.items = items;
+    [s setValue:@(order) forKey:@"pxOrder"];
+    [_shelves addObject:s];
+    [_shelves sortUsingComparator:^NSComparisonResult(CALayer *a, CALayer *b) { return [[a valueForKey:@"pxOrder"] compare:[b valueForKey:@"pxOrder"]]; }];
+    CGFloat y = 0;
+    for (PXShelfLayer *sh in _shelves) {
+        PXNoAnim(^{ sh.position = CGPointMake(0, y); if (!sh.superlayer) [self->_rows addSublayer:sh]; });
+        y += sh.height + 20;
+    }
+    [self updateFocus];
+}
+
+- (void)updateFocus {
+    for (NSInteger i = 0; i < (NSInteger)_shelves.count; i++) [_shelves[i] setActive:self.hasFocus && i == _index];
+    if (_index >= (NSInteger)_shelves.count) return;
+    CGFloat y = 380 - [_shelves[_index] position].y;
+    PXAnim(0.3, ^{ self->_rows.position = CGPointMake(0, y); });
+}
+
+- (void)focusChanged { [self updateFocus]; }
+
+- (BOOL)handleKey:(PXKey)key {
+    if (!_shelves.count) return NO;
+    PXShelfLayer *s = _shelves[_index];
+    switch (key) {
+        case PXKeyLeft: case PXKeyRight: [s moveBy:key == PXKeyLeft ? -1 : 1]; return YES;
+        case PXKeyDown: if (_index + 1 < (NSInteger)_shelves.count) { _index++; [self updateFocus]; } return YES;
+        case PXKeyUp: if (_index > 0) { _index--; [self updateFocus]; } return YES;
+        case PXKeySelect: case PXKeyPlayPause: {
+            PXItem *it = s.focusedItem;
+            if (!it) return YES;
+            if (it.type == PXItemTrack) {   // the list from this track on
+                NSInteger i = [s.items indexOfObject:it];
+                [[PXMusicPlayer shared] playTracks:s.items startAt:MAX(0, i) shuffle:NO];
+                [self push:PXNowPlayingScreenNew()];
+            } else [self push:PXScreenForItem(it)];
+            return YES;
+        }
+        default: return NO;
+    }
+}
+
+@end
+
+PXScreen *PXArtistScreenNew(PXItem *artist) {
+    PXArtistScreen *s = [PXArtistScreen new];
+    s.artist = artist;
     [s setup];
     return s;
 }

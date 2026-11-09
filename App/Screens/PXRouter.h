@@ -33,6 +33,7 @@ PXScreen *PXPlayerScreenNewQueue(NSArray *items);
 
 // Music: album page and the "now playing" screen of PXMusicPlayer.
 PXScreen *PXAlbumScreenNew(PXItem *album);
+PXScreen *PXArtistScreenNew(PXItem *artist);   // photo, biography, albums, popular tracks
 PXScreen *PXNowPlayingScreenNew(void);
 BOOL PXNowPlayingIsShown(void);
 // Full-screen photos with slideshow.

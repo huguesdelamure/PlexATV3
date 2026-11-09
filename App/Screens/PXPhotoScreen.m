@@ -51,6 +51,7 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
         if (!me || serial != me->_serial || !img) return;
         me->_image.contents = (__bridge id)img;
         PXFadeContents(me->_image, me->_slideshow ? 0.8 : 0.2);
+        [me kenBurns];
     }];
     // Next one in the cache before it is asked for.
     if (_index + 1 < (NSInteger)_photos.count)
@@ -61,6 +62,21 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
     if ([date length]) text = [text stringByAppendingFormat:@"   %@", date];
     PXSetText(_caption, text);
     PXAnim(0.3, ^{ self->_caption.opacity = self->_slideshow ? 0 : 1; });
+}
+
+// Slideshow: a slow zoom and pan over each photo (direction varies).
+- (void)kenBurns {
+    [_image removeAnimationForKey:@"kenburns"];
+    if (!_slideshow) { _image.transform = CATransform3DIdentity; return; }
+    CGFloat dx = ((int)arc4random_uniform(3) - 1) * 40, dy = ((int)arc4random_uniform(3) - 1) * 24;
+    CATransform3D end = CATransform3DTranslate(CATransform3DMakeScale(1.12, 1.12, 1), dx, dy, 0);
+    CABasicAnimation *a = [CABasicAnimation animationWithKeyPath:@"transform"];
+    a.fromValue = [NSValue valueWithCATransform3D:CATransform3DIdentity];
+    a.toValue = [NSValue valueWithCATransform3D:end];
+    a.duration = 5.5;
+    a.fillMode = kCAFillModeForwards;
+    a.removedOnCompletion = NO;
+    [_image addAnimation:a forKey:@"kenburns"];
 }
 
 - (void)move:(NSInteger)d {
@@ -81,6 +97,7 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
         dispatch_resume(_timer);
     }
     PXAnim(0.3, ^{ self->_caption.opacity = on ? 0 : 1; });
+    [self kenBurns];
 }
 
 - (void)willDisappear { [super willDisappear]; [self setSlideshow:NO]; }

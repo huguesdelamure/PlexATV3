@@ -216,3 +216,28 @@
 /* Episode page */
 "Saison %ld" = "Season %ld";
 "Voir la série" = "Go to Show";
+
+/* Playback, libraries, cinema, music, photos */
+"Ajouter à la file" = "Add to Queue";
+"Lire ensuite" = "Play Next";
+"Lire la saison" = "Play Season";
+"Aucune" = "None";
+"Automatique" = "Automatic";
+"Manuel" = "Manual";
+"Bandes-annonces avant le film" = "Trailers Before Movies";
+"Bonus (%lu)" = "Extras (%lu)";
+"Boost audio" = "Audio Boost";
+"Léger" = "Low";
+"Moyen" = "Medium";
+"Fort" = "High";
+"Désactivée" = "Off";
+"Fin de l'épisode" = "End of Episode";
+"Fin du film" = "End of Movie";
+"Minuterie de sommeil" = "Sleep Timer";
+"Par date" = "By Date";
+"Recommandé" = "Recommended";
+"Regardés récemment" = "Recently Watched";
+"Retirer de Continuer à regarder" = "Remove from Continue Watching";
+"Titres populaires" = "Popular Tracks";
+"À SUIVRE" = "UP NEXT";
+"À regarder ensuite" = "Watch Next";

@@ -116,6 +116,7 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     else if ([self.section[@"type"] isEqual:@"photo"]) {
         NSString *k = self.section[@"key"];
         [filters setArray:@[ @{ @"title": PXL(@"Albums"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all", k] },
+                             @{ @"title": PXL(@"Par date"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=13&sort=originallyAvailableAt:desc", k] },
                              @{ @"title": PXL(@"Ajouts récents"), @"path": [NSString stringWithFormat:@"/library/sections/%@/all?type=13&sort=addedAt:desc", k] } ]];
     }
     else if (shows || [self.section[@"type"] isEqual:@"movie"])

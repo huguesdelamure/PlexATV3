@@ -427,8 +427,7 @@ PXScreen *PXScreenForItem(PXItem *item) {
     if (item.type == PXItemPlaylist)
         return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/playlists/%@/items", item.ratingKey], item.server);
     if (item.type == PXItemClip) return PXPlayerScreenNew(item, 0);   // trailers and other extras play directly
-    if (item.type == PXItemArtist)
-        return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/library/metadata/%@/children", item.ratingKey], item.server);
+    if (item.type == PXItemArtist) return PXArtistScreenNew(item);
     if (item.type == PXItemAlbum) return PXAlbumScreenNew(item);
     if (item.type == PXItemPhotoAlbum)
         return PXItemListScreenNew(item.title, [NSString stringWithFormat:@"/library/metadata/%@/children", item.ratingKey], item.server);
