@@ -97,6 +97,23 @@ void PXRegisterDevCommands(void) {
         release(iter);
         PXLog(@"cec: %lu matching entries out of %lu", (unsigned long)hits, (unsigned long)total);
     });
+    // markers: intro / credits markers of the first on-deck episodes, as the
+    // player loads them.
+    PXDebugRegister(@"markers", ^(NSArray *a) {
+        PXServer *sv = [PXPlex shared].primaryServer;
+        [sv get:@"/library/onDeck?X-Plex-Container-Size=5" done:^(NSDictionary *mc, NSError *err) {
+            NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
+            PXLog(@"markers: %lu on deck items %@", (unsigned long)items.count, err.localizedDescription ?: @"");
+            for (PXItem *it in items) {
+                [sv metadata:it.ratingKey done:^(NSDictionary *m, NSError *e) {
+                    PXItem *full = m ? [PXItem itemWithJSON:m] : nil;
+                    NSMutableArray *kinds = [NSMutableArray array];
+                    for (NSDictionary *mk in full.markers) [kinds addObject:[NSString stringWithFormat:@"%@ %.0f-%.0f", mk[@"type"], [mk[@"start"] doubleValue], [mk[@"end"] doubleValue]]];
+                    PXLog(@"markers: '%@' %@ -> %@", it.grandparentTitle ?: it.title, it.episodeCode ?: @"", kinds.count ? [kinds componentsJoinedByString:@", "] : @"none");
+                }];
+            }
+        }];
+    });
     // saver: is the screensaver showing (no screen capture needed).
     PXDebugRegister(@"saver", ^(NSArray *a) {
         id mgr = [PXCls("ATVScreenSaverManager") singleton];
