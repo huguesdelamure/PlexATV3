@@ -5,6 +5,8 @@
 #import "PXRouter.h"
 #import "PXMusicPlayer.h"
 #import "PXSettings.h"
+#import "PXOverlay.h"
+#import "PXListLayer.h"
 #import "PXServer.h"
 #import "PXUI.h"
 #import "PXShelfLayer.h"
@@ -50,6 +52,8 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
     dispatch_source_t _clockTimer;
     NSString *_tabsSignature;
     NSArray *_tabSections;           // last library list, to rebuild the tabs
+    PXOverlay *_overlay;             // long-press menu
+    NSDictionary *_historyHub;       // "Regardés récemment" (watch history of the primary server)
     BOOL _hasPlaylists;              // video playlists on the tabs server
     BOOL _hasWatchlist;              // plex.tv watchlist not empty (main home)
 }
@@ -572,8 +576,11 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
         }
         NSMutableArray *ordered = [NSMutableArray array];
         for (PXServer *sv in servers) if (results[sv.identifier]) [ordered addObject:@{ @"server": sv, @"hubs": results[sv.identifier] }];
-        [me showHubs:[me mergeHubs:ordered] error:nil];
+        NSArray *hubs = [me mergeHubs:ordered];
+        if (me->_historyHub) hubs = [hubs arrayByAddingObject:me->_historyHub];
+        [me showHubs:hubs error:nil];
     };
+    if (!self.server) [self loadHistory];
     if (!pending) { finish(); return; }
     for (PXServer *sv in servers) {
         [sv get:@"/library/sections" done:^(NSDictionary *mc, NSError *err) {
@@ -715,6 +722,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 }
 
 - (BOOL)handleKey:(PXKey)key {
+    if (_overlay) return [_overlay handleKey:key];
     if (_childFocused) {
         PXScreen *child = _children[@(_shownTab)];
         if ([child handleKey:key]) return YES;
@@ -758,6 +766,12 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
             if (it) [self push:PXScreenForItem(it)];
             return YES;
         }
+        case PXKeySelectHold: {
+            // Long press in "Continuer à regarder": remove the title from it.
+            PXItem *it = shelf.focusedItem;
+            if (it && [shelf.name containsString:@"continue"]) [self offerRemoveFromContinue:it];
+            return YES;
+        }
         case PXKeyPlayPause: {
             PXItem *it = shelf.focusedItem;
             if (it && (it.type == PXItemMovie || it.type == PXItemEpisode)) [self push:PXPlayerScreenNew(it, it.viewOffset)];
@@ -768,6 +782,45 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
             return NO;
         default: return NO;
     }
+}
+
+// Watch history of the primary server, own views only (account 1 = the server
+// owner; other Plex Home profiles have no stable local id here, so no row).
+- (void)loadHistory {
+    PXPlex *plex = [PXPlex shared];
+    PXServer *sv = plex.primaryServer;
+    NSDictionary *user = plex.currentHomeUser;
+    if (!sv.owned || (user && ![user[@"admin"] boolValue])) { _historyHub = nil; return; }
+    __weak PXHomeScreen *weak = self;
+    [sv get:@"/status/sessions/history/all?sort=viewedAt:desc&accountID=1&X-Plex-Container-Size=40" done:^(NSDictionary *mc, NSError *err) {
+        PXHomeScreen *me = weak;
+        if (!me || ![mc[@"Metadata"] isKindOfClass:[NSArray class]]) return;
+        // One entry per title (an episode watched twice, a film rewatched).
+        NSMutableArray *items = [NSMutableArray array];
+        NSMutableSet *seen = [NSMutableSet set];
+        for (NSDictionary *m in mc[@"Metadata"]) {
+            if (![m isKindOfClass:[NSDictionary class]] || !m[@"ratingKey"] || [seen containsObject:m[@"ratingKey"]]) continue;
+            if (![@[ @"movie", @"episode" ] containsObject:m[@"type"] ?: @""]) continue;
+            [seen addObject:m[@"ratingKey"]];
+            [items addObject:m];
+            if (items.count >= 20) break;
+        }
+        me->_historyHub = items.count ? @{ @"hubIdentifier": @"home.history", @"title": PXL(@"Regardés récemment"), @"type": @"mixed", @"Metadata": items } : nil;
+    }];
+}
+
+- (void)offerRemoveFromContinue:(PXItem *)it {
+    __weak PXHomeScreen *weak = self;
+    PXListRow *row = [PXListRow title:PXL(@"Retirer de Continuer à regarder") value:@"" action:^{
+        PXHomeScreen *me = weak;
+        [me->_overlay close];
+        [it.server put:[NSString stringWithFormat:@"/actions/removeFromContinueWatching?ratingKey=%@", it.ratingKey] done:^(id j, NSError *e) {
+            PXLog(@"home: removed '%@' from continue watching %@", it.title, e ? e.localizedDescription : @"ok");
+            [weak reload];
+        }];
+    }];
+    _overlay = [PXOverlay overlayInLayer:self.layer title:it.title ?: @"" rows:@[ row ]];
+    _overlay.onClose = ^{ PXHomeScreen *me = weak; if (me) me->_overlay = nil; };
 }
 
 - (void)didPop {

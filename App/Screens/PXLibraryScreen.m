@@ -123,6 +123,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     if ((shows || [self.section[@"type"] isEqual:@"movie"]) && !self.basePath) {
         // Pickers: the chip shows all titles until a value is chosen (Select).
         [filters addObject:[@{ @"title": PXL(@"Filtrer"), @"path": [all stringByAppendingString:@"sort=titleSort"], @"picker": @"menu" } mutableCopy]];
+        // Plex's rows for this library (recommended, by genre, top rated…), full screen on Select.
+        [filters addObject:@{ @"title": PXL(@"Recommandé"), @"path": [all stringByAppendingString:@"sort=titleSort"], @"hubs": @YES }];
     }
     if (self.basePath) [filters setArray:@[ @{ @"title": @"", @"path": self.basePath } ]];
     _filters = filters;
@@ -404,6 +406,11 @@ static NSString *pickerTitle(NSString *kind) {
 - (BOOL)handleKey:(PXKey)key {
     if (_overlay) return [_overlay handleKey:key];
     if (_chipsFocused && key == PXKeySelect && _filters[_filterIndex][@"picker"]) { if (!_overlay) [self openPicker:_filterIndex]; return YES; }
+    if (_chipsFocused && key == PXKeySelect && [_filters[_filterIndex][@"hubs"] boolValue]) {
+        [self push:PXHubsScreenNew(self.section[@"title"], [NSString stringWithFormat:@"/hubs/sections/%@?count=20", self.section[@"key"]],
+                                   [[PXPlex shared] serverFor:self.section])];
+        return YES;
+    }
     if (_chipsFocused) {
         switch (key) {
             case PXKeyLeft:  [self applyFilter:MAX(0, _filterIndex - 1)]; return YES;

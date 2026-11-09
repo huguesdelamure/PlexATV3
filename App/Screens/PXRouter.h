@@ -43,3 +43,5 @@ NSDictionary *PXVideoPlayerState(void);
 void PXVideoPlayerControl(NSString *command, double value);
 // "Découvrir" home tab: plex.tv editorial rows (online).
 PXScreen *PXDiscoverScreenNew(void);
+// Full-screen rows of a server's hubs path (library "Recommended" page).
+PXScreen *PXHubsScreenNew(NSString *title, NSString *path, PXServer *server);

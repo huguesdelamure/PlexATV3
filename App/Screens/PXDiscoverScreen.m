@@ -12,6 +12,9 @@
 #import "PXLog.h"
 
 @interface PXDiscoverScreen : PXScreen
+@property (nonatomic, strong) PXServer *server;   // default: plex.tv online provider
+@property (nonatomic, copy) NSString *path;       // default: /hubs/sections/home
+@property (nonatomic, copy) NSString *titleText;  // full-screen mode only
 @end
 
 @implementation PXDiscoverScreen {
@@ -34,13 +37,17 @@
     _status.frame = CGRectMake(110, 200, 1700, 40);
     _status.string = PXL(@"Chargement…");
     [self.layer addSublayer:_status];
-    PXServer *online = [PXPlex shared].onlineProvider;
+    if (!self.embedded && self.titleText) {
+        [self.layer addSublayer:PXAsyncLabel(self.titleText, PXFontHeavy(60), PXColorText(), CGRectMake(110, 40, 1500, 76), 1, NO)];
+        _rows.position = CGPointMake(0, 150);
+    }
+    PXServer *sv = self.server ?: [PXPlex shared].onlineProvider;
     __weak PXDiscoverScreen *weak = self;
-    [online get:@"/hubs/sections/home" done:^(NSDictionary *mc, NSError *err) {
+    [sv get:self.path ?: @"/hubs/sections/home" done:^(NSDictionary *mc, NSError *err) {
         PXDiscoverScreen *me = weak;
         if (!me) return;
         if (err) { PXSetText(me->_status, err.localizedDescription); return; }
-        // Rows of movies and shows only (trailers are not playable here).
+        // Rows of titles only (trailers are not playable here, genre lists are not titles).
         NSMutableArray *hubs = [NSMutableArray array];
         for (NSDictionary *h in mc[@"Hub"])
             if (h[@"key"] && ![h[@"type"] isEqual:@"clip"] && ![h[@"type"] isEqual:@"directory"]) [hubs addObject:h];
@@ -50,13 +57,20 @@
 
 - (void)loadHubs:(NSArray *)hubs {
     if (!hubs.count) { [self showRows:@[]]; return; }
-    PXServer *online = [PXPlex shared].onlineProvider;
+    PXServer *online = self.server ?: [PXPlex shared].onlineProvider;
     NSMutableArray *results = [NSMutableArray arrayWithCapacity:hubs.count];
     for (NSUInteger i = 0; i < hubs.count; i++) [results addObject:[NSNull null]];
     __block NSInteger pending = hubs.count;
     __weak PXDiscoverScreen *weak = self;
     for (NSUInteger i = 0; i < hubs.count; i++) {
         NSDictionary *h = hubs[i];
+        // Media servers send the titles with the rows; the online provider does not.
+        NSArray *given = [PXItem itemsWithJSON:h[@"Metadata"]];
+        if (given.count) {
+            results[i] = @{ @"title": h[@"title"] ?: @"", @"items": given };
+            if (--pending == 0) [self showRows:results];
+            continue;
+        }
         NSString *key = h[@"key"];
         NSString *path = [key stringByAppendingString:[key containsString:@"?"] ? @"&count=20" : @"?count=20"];
         [online get:path done:^(NSDictionary *mc, NSError *err) {
@@ -109,6 +123,15 @@
 }
 
 @end
+
+PXScreen *PXHubsScreenNew(NSString *title, NSString *path, PXServer *server) {
+    PXDiscoverScreen *s = [PXDiscoverScreen new];
+    s.titleText = title;
+    s.path = path;
+    s.server = server;
+    [s setup];
+    return s;
+}
 
 PXScreen *PXDiscoverScreenNew(void) {
     PXDiscoverScreen *s = [PXDiscoverScreen new];

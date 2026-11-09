@@ -93,7 +93,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 
 - (void)loadShow {
     __weak PXShowScreen *weak = self;
-    [self.server get:[NSString stringWithFormat:@"/library/metadata/%@?includeOnDeck=1", self.showKey] done:^(NSDictionary *mc, NSError *err) {
+    [self.server get:[NSString stringWithFormat:@"/library/metadata/%@?includeOnDeck=1&includeExtras=1", self.showKey] done:^(NSDictionary *mc, NSError *err) {
         PXShowScreen *me = weak;
         id m = [mc[@"Metadata"] isKindOfClass:[NSArray class]] ? [mc[@"Metadata"] firstObject] : nil;
         if (!me || !m) return;
@@ -147,6 +147,11 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     }
     [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lire la saison") action:^{ [weak playSeason]; }]];
     [b addObject:[PXButton icon:PXIconNext title:PXL(@"Aléatoire") action:^{ [weak shuffleShow]; }]];
+    NSUInteger extras = it.extras.count;
+    if (extras) [b addObject:[PXButton icon:PXIconInfo title:PXLF(@"Bonus (%lu)", (unsigned long)extras) action:^{
+        PXShowScreen *me = weak;
+        if (me) [me push:PXItemListScreenNew(PXL(@"Bonus"), [NSString stringWithFormat:@"/library/metadata/%@/extras", me.showKey], me.server)];
+    }]];
     [b addObject:[PXButton icon:PXIconCheck title:it.watched ? PXL(@"Série vue") : PXL(@"Marquer la série vue") action:^{
         PXShowScreen *me = weak;
         if (!me) return;
