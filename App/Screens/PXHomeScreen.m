@@ -774,7 +774,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
         }
         case PXKeyPlayPause: {
             PXItem *it = shelf.focusedItem;
-            if (it && (it.type == PXItemMovie || it.type == PXItemEpisode)) [self push:PXPlayerScreenNew(it, it.viewOffset)];
+            if (it && (it.type == PXItemMovie || it.type == PXItemEpisode)) [self push:PXPlayerScreenNew(it, -1)];
             return YES;
         }
         case PXKeyMenu:

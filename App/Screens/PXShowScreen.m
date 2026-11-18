@@ -142,7 +142,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         [b addObject:[PXButton icon:PXIconPlay title:label action:^{
             PXShowScreen *me = weak;
             PXItem *n = me ? me->_onDeck : nil;
-            if (n) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? n.viewOffset : 0)];
+            if (n) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? -1 : 0)];
         }]];
     }
     [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lire la saison") action:^{ [weak playSeason]; }]];
@@ -378,7 +378,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
             return YES;
         case PXKeyPlayPause: {
             PXItem *ep = _zone == PXShowEpisodes ? _episodes.focusedItem : _onDeck;
-            if (ep) [self push:PXPlayerScreenNew(ep, ep.viewOffset > 30 ? ep.viewOffset : 0)];
+            if (ep) [self push:PXPlayerScreenNew(ep, ep.viewOffset > 30 ? -1 : 0)];
             return YES;
         }
         case PXKeyMenu:

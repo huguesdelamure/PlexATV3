@@ -82,6 +82,10 @@ static const CGSize kPreview = { 384, 216 };
     double _lastKnownPos;
     NSString *_lastState;
     NSDate *_lastReport;
+    // Long pause or Apple TV asleep: the item may have been watched on another
+    // client since, so this position is no longer reported and play resyncs.
+    NSDate *_pausedAt, *_lastTickAt;
+    BOOL _stalePos, _resyncing;
 
     // Next episode
     PXItem *_next;
@@ -382,7 +386,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 }
 
 - (void)report:(NSString *)state {
-    if (!self.item.ratingKey || !_readyOnce) return;
+    if (!self.item.ratingKey || !_readyOnce || _stalePos) return;
     [[PXPlex shared] reportTimeline:self.item.raw state:state timeMs:(long long)([self position] * 1000)];
     _lastReport = [NSDate date];
 }
@@ -453,6 +457,20 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     }
     BOOL playing = _player.rate > 0;
     if (_readyOnce) _lastKnownPos = [self position];
+
+    // Ticks stop while the Apple TV sleeps: a gap means it just woke up.
+    NSDate *now = [NSDate date];
+    if (_readyOnce && !_stalePos && _lastTickAt && [now timeIntervalSinceDate:_lastTickAt] > 15) {
+        _stalePos = YES;
+        PXLog(@"player: woke after %.0f s, position stale", [now timeIntervalSinceDate:_lastTickAt]);
+    }
+    _lastTickAt = now;
+    if (playing) { _pausedAt = nil; if (!_resyncing) _stalePos = NO; }
+    else if (_readyOnce && _userPausedFlag && !_pausedAt) _pausedAt = now;
+    if (_pausedAt && !_stalePos && [now timeIntervalSinceDate:_pausedAt] > 120) {
+        _stalePos = YES;
+        PXLog(@"player: paused for 2 min, position stale");
+    }
 
     // iOS 8 AVPlayer does not resume by itself after a stall: do it when the
     // buffer is healthy again, unless the user paused.
@@ -610,8 +628,37 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 - (void)togglePause {
     if (_scrubbing) { [self commitScrub]; return; }
     if (_player.rate > 0) { [_player pause]; _userPausedFlag = YES; }
+    else if (_stalePos) [self resumeFromServer:-1];
     else { [_player play]; _userPausedFlag = NO; }
     [self showOSD:YES];
+}
+
+// Play after a long pause or a wake-up: continue from the server's resume
+// point when another client moved it, else from here (target >= 0: from
+// there, chosen by the user). A transcode restarts: the server may have
+// dropped the paused session.
+- (void)resumeFromServer:(double)target {
+    if (_resyncing) return;
+    _resyncing = YES;
+    double local = [self position];
+    __weak PXPlayerScreen *weak = self;
+    [self.item.server metadata:self.item.ratingKey done:^(NSDictionary *m, NSError *err) {
+        PXPlayerScreen *me = weak;
+        if (!me || me->_gone) return;
+        me->_resyncing = NO;
+        me->_stalePos = NO;
+        me->_pausedAt = nil;
+        me->_userPausedFlag = NO;
+        double t = target;
+        if (t < 0) {
+            double server = m ? [PXItem itemWithJSON:m].viewOffset : 0;
+            t = server > 30 && fabs(server - local) > 5 ? server : local;
+            PXLog(@"player: resync local=%.0f server=%.0f -> %.0f", local, server, t);
+        }
+        if (!me->_directPlay) { [me loadItemThenStartAt:t]; return; }
+        if (fabs(t - local) > 1) [me seekTo:t];
+        [me->_player play];
+    }];
 }
 
 - (void)seekTo:(double)t {
@@ -637,6 +684,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
 - (void)commitScrub {
     _scrubbing = NO;
+    if (_stalePos) { [self resumeFromServer:_scrubPos]; [self showOSD:YES]; return; }
     [self seekTo:_scrubPos];
     [_player play];
     _userPausedFlag = NO;
@@ -994,7 +1042,7 @@ PXScreen *PXPlayerScreenNewQueue(NSArray *items) {
     s.item = items.firstObject;
     s.queue = items;
     PXItem *first = items.firstObject;
-    s.startOffset = first.viewOffset > 30 ? first.viewOffset : 0;   // a season resumes where it was
+    s.startOffset = first.viewOffset > 30 ? -1 : 0;   // a season resumes where it was (fresh from the server)
     [s setup];
     return s;
 }

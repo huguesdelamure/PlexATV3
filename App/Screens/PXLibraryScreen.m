@@ -443,7 +443,7 @@ static NSString *pickerTitle(NSString *kind) {
             PXItem *it = _focus < (NSInteger)_items.count ? _items[_focus] : nil;
             if ([it isKindOfClass:[PXItem class]] && it.type == PXItemTrack) { [self playTracksFrom:it]; return YES; }
             if ([it isKindOfClass:[PXItem class]] && (it.type == PXItemMovie || it.type == PXItemEpisode || it.type == PXItemClip))
-                [self push:PXPlayerScreenNew(it, it.viewOffset)];
+                [self push:PXPlayerScreenNew(it, -1)];
             return YES;
         }
         default: return NO;

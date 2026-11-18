@@ -396,7 +396,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         }];
         return;
     }
-    [self push:PXPlayerScreenNew(it, resume ? it.viewOffset : 0)];
+    [self push:PXPlayerScreenNew(it, resume ? -1 : 0)];
 }
 
 - (void)closeOverlay { [_overlay close]; }
