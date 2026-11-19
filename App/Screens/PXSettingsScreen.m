@@ -69,7 +69,7 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
         BOOL ask = [PXSettingGet(@"profileAtLaunch") isEqual:@"ask"];
         [rows addObject:[PXListRow title:PXL(@"Profil au lancement") value:ask ? PXL(@"Toujours demander") : PXL(@"Dernier profil") action:^{
             PXSettingSet(@"profileAtLaunch", ask ? @"last" : @"ask");
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }]];
     }
     [rows addObjectsFromArray:@[
@@ -96,37 +96,37 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
         [PXListRow title:PXL(@"Clavier") value:[self keyboardLabel] action:^{ [weak nextKeyboard]; }],
         [PXListRow title:PXL(@"Passer l'intro") value:[PXSettingGet(@"skipIntro") isEqual:@"auto"] ? PXL(@"Automatique") : PXL(@"Manuel") action:^{
             PXSettingSet(@"skipIntro", [PXSettingGet(@"skipIntro") isEqual:@"auto"] ? nil : @"auto");
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }],
         [PXListRow title:PXL(@"Passer le générique") value:[PXSettingGet(@"skipCredits") isEqual:@"auto"] ? PXL(@"Automatique") : PXL(@"Manuel") action:^{
             PXSettingSet(@"skipCredits", [PXSettingGet(@"skipCredits") isEqual:@"auto"] ? nil : @"auto");
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }],
         [PXListRow title:PXL(@"Bandes-annonces avant le film") value:[PXSettingGet(@"cinemaTrailers") intValue] ? [PXSettingGet(@"cinemaTrailers") description] : PXL(@"Aucune") action:^{
             PXSettingSet(@"cinemaTrailers", @(([PXSettingGet(@"cinemaTrailers") intValue] + 1) % 4));
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }],
         [PXListRow title:PXL(@"Boost audio") value:[self boostLabel] action:^{
             NSArray *steps = @[ @100, @150, @200, @300 ];
             NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"audioBoost") intValue] ?: 100)];
             PXSettingSet(@"audioBoost", steps[(i == NSNotFound ? 0 : i + 1) % steps.count]);
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }],
         [PXListRow title:PXL(@"Taille des sous-titres") value:[self subtitleSizeLabel] action:^{
             NSArray *steps = @[ @80, @100, @125, @150 ];
             NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"subtitleSize") intValue] ?: 100)];
             PXSettingSet(@"subtitleSize", steps[(i == NSNotFound ? 1 : i + 1) % steps.count]);
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }],
         [PXListRow title:PXL(@"Musique des séries") value:[PXSettingGet(@"themeMusic") isEqual:@NO] ? PXL(@"Désactivé") : PXL(@"Activé") action:^{
             PXSettingSet(@"themeMusic", @([PXSettingGet(@"themeMusic") isEqual:@NO]));
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }],
         [PXListRow title:PXL(@"Contrôle depuis l'app Plex") value:[PXCompanion enabled] ? PXL(@"Activé") : PXL(@"Désactivé") action:^{
             BOOL on = ![PXCompanion enabled];
             PXSettingSet(@"companion", @(on));
             if (on) [[PXCompanion shared] start]; else [[PXCompanion shared] stop];
-            [weak rebuildKeepingFocus];
+            [weak buildMain];
         }],
         [PXListRow title:PXL(@"Se déconnecter de plex.tv") value:@"" action:^{
             [[PXPlex shared] signOut];
@@ -173,12 +173,6 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
     }
 }
 
-- (void)rebuildKeepingFocus {
-    NSInteger focus = _list.focusIndex;
-    [self buildMain];
-    _list.focusIndex = focus;
-}
-
 #pragma mark - Language and keyboard
 
 - (NSString *)languageLabel {
@@ -210,9 +204,7 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
     NSArray *order = PXKeyboardLayoutOrder();
     NSUInteger i = [order indexOfObject:PXSettingGet(@"keyboard") ?: @"auto"];
     PXSettingSet(@"keyboard", order[(i == NSNotFound ? 0 : i + 1) % order.count]);
-    NSInteger focus = _list.focusIndex;
-    [self buildMain];
-    _list.focusIndex = focus;
+    [self buildMain];   // the list keeps its focused row
 }
 
 // Next value of a setting among its choices.
@@ -221,9 +213,7 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
     NSUInteger i = 0;
     for (NSUInteger j = 0; j < choices.count; j++) if ([choices[j][0] isEqual:cur]) i = j;
     PXSettingSet(key, choices[(i + 1) % choices.count][0]);
-    NSInteger focus = _list.focusIndex;
-    [self buildMain];
-    _list.focusIndex = focus;
+    [self buildMain];   // the list keeps its focused row
 }
 
 - (void)pickServer {

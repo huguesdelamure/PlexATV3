@@ -89,11 +89,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
                                           PXFontSemi(30), PXColorAccent(), CGRectMake(kLeft, y, kTextW, 40), 1, NO)];
         y += 48;
     }
-    // Title: up to two lines, size adapted to length.
-    UIFont *tf = PXFitFont(it.title, PXHeavy, 84, 48, kTextW, 2);
-    CGFloat th = MIN(PXTextHeight(it.title, tf, kTextW - 12), ceil(tf.lineHeight) * 2) + 6;
-    [_header addSublayer:PXAsyncLabel(it.title, tf, PXColorText(), CGRectMake(kLeft, y, kTextW - 12, th), 2, NO)];
-    y += th + 14;
+    y += PXAddPageTitle(_header, it.title, kLeft, y, kTextW) + 14;
 
     NSMutableArray *meta = [NSMutableArray array];
     if (it.year) [meta addObject:[@(it.year) stringValue]];
@@ -113,11 +109,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         [_header addSublayer:PXAsyncLabel(it.tagline, PXFontSemi(28), PXColorWhite(0.9), CGRectMake(kLeft, y, kTextW, 38), 1, NO)];
         y += 46;
     }
-    UIFont *sf = PXFont(28);
-    CGFloat maxSummary = kButtonsY - 70 - y;
-    CGFloat sh = MIN(PXTextHeight(it.summary, sf, kTextW), floor(maxSummary / sf.lineHeight) * sf.lineHeight);
-    NSInteger lines = MAX(0, (NSInteger)floor(maxSummary / sf.lineHeight));
-    if (lines && sh > 0) [_header addSublayer:PXAsyncLabel(it.summary, sf, PXColorWhite(0.82), CGRectMake(kLeft, y, kTextW, sh), lines, NO)];
+    PXAddPageSummary(_header, it.summary, kLeft, y, kTextW, kButtonsY - 70);
 
     if (it.directors.count) {
         [_header addSublayer:PXAsyncLabel([PXL(@"Réalisation : ") stringByAppendingString:[it.directors componentsJoinedByString:@", "]],

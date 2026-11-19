@@ -308,7 +308,6 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     CGFloat y = _inResults ? 80 + _top + 110 - [_shelves[_shelfIndex] position].y : base;
     PXAnim(0.35, ^{
         self->_resultsLayer.position = CGPointMake(0, y);
-        self->_keyboard.hidden = NO;
         self->_hint.opacity = self->_inResults ? 0 : 1;
         for (NSInteger i = 0; i < (NSInteger)self->_shelves.count; i++)
             [self->_shelves[i] setOpacity:self->_inResults && i < self->_shelfIndex ? 0 : 1];

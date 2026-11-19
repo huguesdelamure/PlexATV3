@@ -13,13 +13,6 @@
 #import "PXMusicPlayer.h"
 #import "PXLog.h"
 
-static NSString *PXTrackClock(double s) {
-    if (!isfinite(s) || s < 0) s = 0;
-    long t = (long)s;
-    return t >= 3600 ? [NSString stringWithFormat:@"%ld:%02ld:%02ld", t / 3600, (t / 60) % 60, t % 60]
-                     : [NSString stringWithFormat:@"%ld:%02ld", t / 60, t % 60];
-}
-
 // Corners baked into the image (no masksToBounds: no offscreen pass);
 // cornerRadius only rounds the placeholder color, which is free.
 static CALayer *PXCover(PXItem *it, CGFloat size, CGFloat radius) {
@@ -314,9 +307,7 @@ PXScreen *PXNowPlayingScreenNew(void) {
         [rows addObject:r];
     }
     if (!rows.count) [rows addObject:[PXListRow title:PXL(@"Aucun titre") value:@"" action:nil]];
-    NSInteger focus = _list.focusIndex;
-    _list.rows = rows;
-    _list.focusIndex = MIN(focus, (NSInteger)rows.count - 1);
+    _list.rows = rows;   // keeps the focused row (bounded)
 }
 
 // Row of a track in the list (after "Tout lire" and "Aléatoire"), NSNotFound if none.

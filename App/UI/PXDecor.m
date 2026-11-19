@@ -132,6 +132,22 @@ CALayer *PXPillsRow(NSArray *texts, CGPoint origin) {
     return row;
 }
 
+#pragma mark - Page header
+
+CGFloat PXAddPageTitle(CALayer *parent, NSString *title, CGFloat x, CGFloat y, CGFloat width) {
+    UIFont *tf = PXFitFont(title, PXHeavy, 84, 48, width, 2);
+    CGFloat th = MIN(PXTextHeight(title, tf, width - 12), ceil(tf.lineHeight) * 2) + 6;
+    [parent addSublayer:PXAsyncLabel(title, tf, PXColorText(), CGRectMake(x, y, width - 12, th), 2, NO)];
+    return th;
+}
+
+void PXAddPageSummary(CALayer *parent, NSString *summary, CGFloat x, CGFloat y, CGFloat width, CGFloat bottom) {
+    UIFont *sf = PXFont(28);
+    NSInteger lines = MAX(0, (NSInteger)floor((bottom - y) / sf.lineHeight));
+    CGFloat sh = MIN(PXTextHeight(summary, sf, width), lines * sf.lineHeight);
+    if (lines && sh > 0) [parent addSublayer:PXAsyncLabel(summary, sf, PXColorWhite(0.82), CGRectMake(x, y, width, sh), lines, NO)];
+}
+
 #pragma mark - Cast row
 
 static const CGFloat kD = 150, kGap = 44;
@@ -139,7 +155,7 @@ static const CGFloat kD = 150, kGap = 44;
 @implementation PXCastRow {
     CGFloat _width;
     CALayer *_content;
-    NSMutableArray *_cells;    // {root, photo, ring, name, role}
+    NSMutableArray *_cells;    // {root, ring, name}
     NSInteger _litIndex;       // cell drawn focused (-1: none)
     CATextLayer *_title;
 }
@@ -200,7 +216,7 @@ static const CGFloat kD = 150, kGap = 44;
         [root addSublayer:name];
         [root addSublayer:role];
         PXNoAnim(^{ [self->_content addSublayer:root]; });
-        [_cells addObject:@{ @"root": root, @"photo": photo, @"ring": ring, @"name": name, @"initials": initials }];
+        [_cells addObject:@{ @"root": root, @"ring": ring, @"name": name }];
         NSString *thumb = p[@"thumb"];
         if (thumb.length) {
             NSURL *url = [(self.server ?: [PXPlex shared].primaryServer) imageURL:thumb width:(int)kD height:(int)kD];

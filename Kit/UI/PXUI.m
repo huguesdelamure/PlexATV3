@@ -45,7 +45,6 @@ UIFont *PXFontMedium(CGFloat s) { return PXFontW(s, PXMedium); }
 UIFont *PXFontSemi(CGFloat s)   { return PXFontW(s, PXSemibold); }
 UIFont *PXFontBold(CGFloat s)   { return PXFontW(s, PXBold); }
 UIFont *PXFontHeavy(CGFloat s)  { return PXFontW(s, PXHeavy); }
-UIFont *PXFontLight(CGFloat s)  { return PXFontW(s, PXRegular); }
 
 #pragma mark - Colors
 
@@ -435,20 +434,6 @@ CAShapeLayer *PXIconLayer(PXIcon icon, CGFloat s, CGColorRef color) {
             [p addLineToPoint:CGPointMake(s * 0.4, s * 0.76)];
             [p addLineToPoint:CGPointMake(s * 0.86, s * 0.26)];
             break;
-        case PXIconGear: {
-            // Thick dashed ring = teeth, thinner ring = body.
-            l.fillColor = NULL; l.lineWidth = s * 0.16;
-            [p addArcWithCenter:CGPointMake(s / 2, s / 2) radius:s * 0.36 startAngle:0 endAngle:M_PI * 2 clockwise:YES];
-            l.lineDashPattern = @[ @(s * 0.16), @(s * 0.12) ];
-            l.lineCap = kCALineCapButt;
-            CAShapeLayer *body = [CAShapeLayer layer];
-            body.path = [UIBezierPath bezierPathWithArcCenter:CGPointMake(s / 2, s / 2) radius:s * 0.24 startAngle:0 endAngle:M_PI * 2 clockwise:YES].CGPath;
-            body.fillColor = NULL;
-            body.strokeColor = color;
-            body.lineWidth = s * 0.13;
-            [l addSublayer:body];
-            break;
-        }
         case PXIconSearch:
             l.fillColor = NULL; l.lineWidth = lw * 1.1;
             [p appendPath:[UIBezierPath bezierPathWithArcCenter:CGPointMake(s * 0.42, s * 0.42) radius:s * 0.26 startAngle:0 endAngle:M_PI * 2 clockwise:YES]];
@@ -504,11 +489,19 @@ CALayer *PXSpinner(CGFloat size) {
 
 #pragma mark - Time
 
+static NSString *clockText(long t, BOOL padMinutes) {
+    if (t >= 3600) return [NSString stringWithFormat:@"%ld:%02ld:%02ld", t / 3600, (t / 60) % 60, t % 60];
+    return padMinutes ? [NSString stringWithFormat:@"%02ld:%02ld", t / 60, t % 60] : [NSString stringWithFormat:@"%ld:%02ld", t / 60, t % 60];
+}
+
 NSString *PXClock(double s) {
     if (isnan(s) || s < 0) return @"--:--";
-    long t = (long)s;
-    return t >= 3600 ? [NSString stringWithFormat:@"%ld:%02ld:%02ld", t / 3600, (t / 60) % 60, t % 60]
-                     : [NSString stringWithFormat:@"%02ld:%02ld", t / 60, t % 60];
+    return clockText((long)s, YES);
+}
+
+NSString *PXTrackClock(double s) {
+    if (!isfinite(s) || s < 0) s = 0;
+    return clockText((long)s, NO);
 }
 
 NSString *PXDurationText(double s) {

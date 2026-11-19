@@ -19,6 +19,7 @@
 #import "PXPlex.h"
 #import "PXItem.h"
 #import "PXLog.h"
+#import "PXPillBar.h"
 
 PXScreen *PXDetailScreenNew(PXItem *item);
 
@@ -38,10 +39,10 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     PXAmbientLayer *_ambient;
     CALayer *_page, *_header;
     PXButtonRow *_buttons;
-    CALayer *_seasonsBar, *_seasonsContent;
+    CALayer *_seasonsBar;
+    PXPillBar *_seasonsContent;
     BOOL _userMovedSeason;
     NSArray *_seasons;              // PXItem
-    NSMutableArray *_seasonPills;   // {pill, text}
     NSInteger _seasonIndex;
     PXShelfLayer *_episodes;
     CALayer *_epTitle, *_epSummary;   // drawn off the main thread
@@ -69,11 +70,13 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     _seasonsBar.frame = CGRectMake(0, kSeasonsY - 10, 1920, 76);
     _seasonsBar.masksToBounds = YES;     // plain layer, no rounded corners: no offscreen pass
     [_page addSublayer:_seasonsBar];
-    _seasonsContent = [CALayer layer];
+    _seasonsContent = [[PXPillBar alloc] initWithHeight:52];
+    _seasonsContent.font = PXFontSemi(26);
+    _seasonsContent.padding = 44;
+    _seasonsContent.gap = 8;
     _seasonsContent.anchorPoint = CGPointZero;
     _seasonsContent.position = CGPointMake(kLeft, 10);
     [_seasonsBar addSublayer:_seasonsContent];
-    _seasonPills = [NSMutableArray array];
     _episodes = [[PXShelfLayer alloc] initWithTitle:@"" width:1920 imageSize:CGSizeMake(400, 225) artwork:PXArtworkThumb];
     _episodes.leftMargin = kLeft;
     _episodes.position = CGPointMake(0, kEpisodesY - 56);   // shelf title row unused
@@ -130,11 +133,8 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     PXItem *it = _show;
     for (CALayer *l in [_header.sublayers copy]) [l removeFromSuperlayer];
     CGFloat y = 130;
-    UIFont *tf = PXFitFont(it.title, PXHeavy, 84, 48, kTextW, 2);
-    CGFloat th = MIN(PXTextHeight(it.title, tf, kTextW - 12), ceil(tf.lineHeight) * 2) + 6;
     // Texts drawn off the main thread (CATextLayers stall the commit on the A5).
-    [_header addSublayer:PXAsyncLabel(it.title, tf, PXColorText(), CGRectMake(kLeft, y, kTextW - 12, th), 2, NO)];
-    y += th + 14;
+    y += PXAddPageTitle(_header, it.title, kLeft, y, kTextW) + 14;
     NSMutableArray *meta = [NSMutableArray array];
     if (it.year) [meta addObject:[@(it.year) stringValue]];
     if (it.childCount) [meta addObject:it.shelfSubtitle];
@@ -145,10 +145,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     y += 54;
     CALayer *ratings = PXRatingsRow(it.ratings, CGPointMake(kLeft, y));
     if (ratings.bounds.size.width > 0) { [_header addSublayer:ratings]; y += 60; }
-    UIFont *sf = PXFont(28);
-    CGFloat sh = MIN(PXTextHeight(it.summary, sf, kTextW), floor((kButtonsY - 40 - y) / sf.lineHeight) * sf.lineHeight);
-    NSInteger lines = MAX(0, (NSInteger)floor((kButtonsY - 40 - y) / sf.lineHeight));
-    if (lines && sh > 0) [_header addSublayer:PXAsyncLabel(it.summary, sf, PXColorWhite(0.82), CGRectMake(kLeft, y, kTextW, sh), lines, NO)];
+    PXAddPageSummary(_header, it.summary, kLeft, y, kTextW, kButtonsY - 40);
 
     __weak PXShowScreen *weak = self;
     NSMutableArray *b = [NSMutableArray array];
@@ -159,7 +156,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         [b addObject:[PXButton icon:PXIconPlay title:label action:^{
             PXShowScreen *me = weak;
             PXItem *n = me ? me->_onDeck : nil;
-            if (n && [me isOnTop]) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? -1 : 0)];
+            if (n && [me isOnTop]) [me push:PXPlayerScreenNew(n, -1)];   // the player resumes past 30 s
         }]];
     }
     [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lire la saison") action:^{ [weak playSeason]; }]];
@@ -216,58 +213,33 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 }
 
 - (void)buildSeasonPills {
-    for (NSDictionary *p in _seasonPills) [p[@"pill"] removeFromSuperlayer];
-    [_seasonPills removeAllObjects];
-    UIFont *f = PXFontSemi(26);
-    CGFloat x = 0;
-    for (PXItem *s in _seasons) {
-        NSString *t = s.title;
-        CGFloat w = PXTextWidth(t, f) + 44;
-        CALayer *pill = [CALayer layer];
-        pill.frame = CGRectMake(x, 0, w, 52);
-        pill.cornerRadius = 26;
-        CATextLayer *tl = PXText(f, PXColorTextDim());
-        tl.alignmentMode = kCAAlignmentCenter;
-        tl.string = t;
-        tl.frame = CGRectMake(0, (52 - f.lineHeight) / 2 - 1, w, f.lineHeight + 2);
-        [pill addSublayer:tl];
-        // Unwatched dot on seasons with new episodes.
-        if (s.unwatchedLeaves) {
-            CALayer *dot = [CALayer layer];
-            dot.frame = CGRectMake(w - 16, 8, 10, 10);
-            dot.cornerRadius = 5;
-            dot.backgroundColor = PXColorAccent();
-            [pill addSublayer:dot];
-        }
-        PXNoAnim(^{ [self->_seasonsContent addSublayer:pill]; });
-        [_seasonPills addObject:@{ @"pill": pill, @"text": tl }];
-        x += w + 8;
+    NSMutableArray *titles = [NSMutableArray array];
+    for (PXItem *s in _seasons) [titles addObject:s.title ?: @""];
+    _seasonsContent.titles = titles;
+    // Unwatched dot on seasons with new episodes.
+    for (NSUInteger i = 0; i < _seasons.count; i++) {
+        if (![_seasons[i] unwatchedLeaves]) continue;
+        CALayer *pill = _seasonsContent.pills[i];
+        CALayer *dot = [CALayer layer];
+        dot.frame = CGRectMake(pill.bounds.size.width - 16, 8, 10, 10);
+        dot.cornerRadius = 5;
+        dot.backgroundColor = PXColorAccent();
+        PXNoAnim(^{ [pill addSublayer:dot]; });
     }
     [self updateSeasonPills];
 }
 
 - (void)updateSeasonPills {
     // Keep the selected pill inside the visible width.
-    if (_seasonIndex < (NSInteger)_seasonPills.count) {
-        CALayer *sel = _seasonPills[_seasonIndex][@"pill"];
+    if (_seasonIndex < (NSInteger)_seasonsContent.pills.count) {
+        CALayer *sel = _seasonsContent.pills[_seasonIndex];
         CGFloat x = -(_seasonsContent.position.x - kLeft);
         CGFloat left = CGRectGetMinX(sel.frame), right = CGRectGetMaxX(sel.frame), visible = 1920 - 2 * kLeft;
         if (left < x) x = left;
         if (right > x + visible) x = right - visible;
         PXAnim(0.3, ^{ self->_seasonsContent.position = CGPointMake(kLeft - x, 10); });
     }
-    PXAnim(0.2, ^{
-        for (NSInteger i = 0; i < (NSInteger)self->_seasonPills.count; i++) {
-            BOOL selected = i == self->_seasonIndex;
-            BOOL focused = selected && self->_zone == PXShowSeasons;
-            CALayer *pill = self->_seasonPills[i][@"pill"];
-            CATextLayer *t = self->_seasonPills[i][@"text"];
-            pill.backgroundColor = focused ? PXColorText() : (selected ? PXColorPanelStrong() : [UIColor clearColor].CGColor);
-            t.foregroundColor = focused ? PXColorBlack(0.9) : (selected ? PXColorText() : PXColorTextDim());
-            CGFloat k = focused ? 1.08 : 1.0;
-            pill.transform = CATransform3DMakeScale(k, k, 1);
-        }
-    });
+    [_seasonsContent setSelected:_seasonIndex focused:_zone == PXShowSeasons ? _seasonIndex : -1];
 }
 
 - (void)loadEpisodes {
@@ -403,7 +375,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
             return YES;
         case PXKeyPlayPause: {
             PXItem *ep = _zone == PXShowEpisodes ? _episodes.focusedItem : _onDeck;
-            if (ep) [self push:PXPlayerScreenNew(ep, ep.viewOffset > 30 ? -1 : 0)];
+            if (ep) [self push:PXPlayerScreenNew(ep, -1)];
             return YES;
         }
         case PXKeyMenu:

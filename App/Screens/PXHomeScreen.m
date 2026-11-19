@@ -15,6 +15,7 @@
 #import "PXItem.h"
 #import "PXLog.h"
 #import "PXBackRow.h"
+#import "PXPillBar.h"
 
 static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTopY = 150;
 
@@ -28,8 +29,8 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
 
 @implementation PXHomeScreen {
     PXAmbientLayer *_ambient;
-    CALayer *_tabsBar;
-    NSMutableArray *_tabs;          // {title, action, layer, text}
+    PXPillBar *_tabsBar;
+    NSArray *_tabs;                 // {id, title, make}
     NSInteger _tabIndex;
     BOOL _tabsFocused;
     NSInteger _shownTab;            // tab whose content is displayed
@@ -93,8 +94,9 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
         _tabsScrim.opacity = 0;
         [self.layer addSublayer:_tabsScrim];
 
-        _tabsBar = [CALayer layer];
-        _tabsBar.frame = CGRectMake(0, kTabsY, 1920, 60);
+        _tabsBar = [[PXPillBar alloc] initWithHeight:56];
+        _tabsBar.frame = CGRectMake(84, kTabsY, 1920 - 84, 60);
+        _tabsBar.gap = 6;
         [self.layer addSublayer:_tabsBar];
 
         _clock = PXText(PXFontMedium(32), PXColorText());
@@ -109,7 +111,7 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
         [self.layer addSublayer:_status];
 
         _shelves = [NSMutableArray array];
-        _tabs = [NSMutableArray array];
+        _tabs = @[];
         [self buildTabs:@[]];
         [self startClock];
     }
@@ -151,23 +153,6 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
         l.actions = @{ @"contents": [NSNull null], @"bounds": [NSNull null], @"position": [NSNull null] };
     }
     for (CALayer *l in @[ _heroTitle, _heroMeta, _heroBadges, _heroSummary ]) [_hero addSublayer:l];
-}
-
-// Outlined pill ("4K", "HDR", "TrueHD 7.1").
-static CALayer *badgePill(NSString *text, CGFloat x) {
-    UIFont *f = PXFontSemi(20);
-    CGFloat w = PXTextWidth(text, f) + 22;
-    CALayer *b = [CALayer layer];
-    b.frame = CGRectMake(x, 2, w, 34);
-    b.cornerRadius = 7;
-    b.borderWidth = 2;
-    b.borderColor = PXColorWhite(0.55);
-    CATextLayer *t = PXText(f, PXColorWhite(0.9));
-    t.alignmentMode = kCAAlignmentCenter;
-    t.string = text;
-    t.frame = CGRectMake(0, (34 - f.lineHeight) / 2 - 1, w, f.lineHeight + 2);
-    [b addSublayer:t];
-    return b;
 }
 
 // The hero (big text, badges, backdrop) is rebuilt only once the focus
@@ -289,7 +274,6 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 - (BOOL)showsServersTab { return !self.server && [PXPlex shared].servers.count > 1; }
 
 - (void)buildTabs:(NSArray *)sections {
-    for (NSDictionary *n in _tabs) [n[@"layer"] removeFromSuperlayer];
     NSString *shownId = _shownTab < (NSInteger)_tabs.count ? _tabs[_shownTab][@"id"] : nil;
     NSString *focusId = _tabIndex < (NSInteger)_tabs.count ? _tabs[_tabIndex][@"id"] : nil;
     // Each tab builds its content once (kept while the home lives, across
@@ -340,34 +324,18 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     }
     _shownTab = shown;
     _tabIndex = focus == NSNotFound ? shown : focus;
-    NSMutableArray *built = [NSMutableArray array];
-    CGFloat x = 84;
     // Many libraries / tabs: tighter pills, then a smaller font, so the bar
     // stays clear of the clock (right ~300 px).
+    NSArray *titles = [defs valueForKey:@"title"];
     UIFont *f = PXFontSemi(28);
     CGFloat pad = 48, room = 1920 - 84 - 300, total = 0;
-    for (NSDictionary *d in defs) total += PXTextWidth(d[@"title"], f) + pad + 6;
-    if (total > room) { pad = 28; total = 0; for (NSDictionary *d in defs) total += PXTextWidth(d[@"title"], f) + pad + 6; }
+    for (NSString *t in titles) total += PXTextWidth(t, f) + pad + 6;
+    if (total > room) { pad = 28; total = 0; for (NSString *t in titles) total += PXTextWidth(t, f) + pad + 6; }
     if (total > room) { f = PXFontSemi(24); pad = 24; }
-    for (NSDictionary *d in defs) {
-        CGFloat w = PXTextWidth(d[@"title"], f) + pad;
-        CALayer *pill = [CALayer layer];
-        pill.frame = CGRectMake(x, 0, w, 56);
-        pill.cornerRadius = 28;
-        CATextLayer *t = PXText(f, PXColorTextDim());
-        t.alignmentMode = kCAAlignmentCenter;
-        t.string = d[@"title"];
-        t.frame = CGRectMake(0, (56 - f.lineHeight) / 2 - 1, w, f.lineHeight + 2);
-        [pill addSublayer:t];
-        PXNoAnim(^{ [self->_tabsBar addSublayer:pill]; });
-        NSMutableDictionary *m = [d mutableCopy];
-        m[@"layer"] = pill;
-        m[@"text"] = t;
-        [built addObject:m];
-        x += w + 6;
-    }
-    _tabs = built;
-    _tabIndex = MIN(_tabIndex, (NSInteger)_tabs.count - 1);
+    _tabsBar.font = f;
+    _tabsBar.padding = pad;
+    _tabsBar.titles = titles;
+    _tabs = defs;
     [self updateTabs];
     if (self.opensSettings && !self.server) {
         // Rebuilt after a language change: back on Réglages (last tab).
@@ -379,18 +347,9 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 }
 
 - (void)updateTabs {
-    PXAnim(0.2, ^{
-        for (NSInteger i = 0; i < (NSInteger)self->_tabs.count; i++) {
-            CALayer *pill = self->_tabs[i][@"layer"];
-            CATextLayer *t = self->_tabs[i][@"text"];
-            BOOL focused = self->_tabsFocused && i == self->_tabIndex;
-            BOOL current = i == self->_shownTab;
-            pill.backgroundColor = focused ? PXColorText() : (current && !self->_tabsFocused ? PXColorPanel() : [UIColor clearColor].CGColor);
-            t.foregroundColor = focused ? PXColorBlack(0.92) : (current ? PXColorText() : PXColorTextDim());
-            CGFloat k = focused ? 1.08 : 1.0;
-            pill.transform = CATransform3DMakeScale(k, k, 1);
-        }
-    });
+    // The tab shown gets a panel only while the focus is below the bar.
+    _tabsBar.selectedColor = _tabsFocused ? nil : [UIColor colorWithCGColor:PXColorPanel()];
+    [_tabsBar setSelected:_shownTab focused:_tabsFocused ? _tabIndex : -1];
 }
 
 #pragma mark - Tab content
@@ -629,7 +588,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
         if (!ordered.count && me->_loaded) { PXLog(@"home: refresh failed, keeping the shelves"); return; }
         NSArray *hubs = [me mergeHubs:ordered];
         if (me->_historyHub) hubs = [hubs arrayByAddingObject:me->_historyHub];
-        [me showHubs:hubs error:nil];
+        [me showHubs:hubs];
     };
     if (!pending) { finish(); return; }
     // The history row is part of this load (shown with the hubs, not one reload later).
@@ -697,7 +656,7 @@ static NSString *itemSignature(PXItem *it) {
             r[@"viewedLeafCount"], r[@"leafCount"], it.server.uri];
 }
 
-- (void)showHubs:(NSArray *)hubs error:(NSError *)err {
+- (void)showHubs:(NSArray *)hubs {
     // Items already shown and unchanged keep their PXItem (cells and hero
     // compare pointers / keys): a refresh redraws only what changed.
     NSMutableDictionary *oldItems = [NSMutableDictionary dictionary];   // uniqueKey -> PXItem
@@ -736,7 +695,7 @@ static NSString *itemSignature(PXItem *it) {
         PXItem *prev = oldItems[k];
         if (!prev || ![itemSignature(prev) isEqual:newSigs[k]]) [_fullItems removeObjectForKey:k];
     }
-    PXSetText(_status, rows.count ? @"" : (err ? err.localizedDescription : PXL(@"Rien à afficher pour le moment.")));
+    PXSetText(_status, rows.count ? @"" : PXL(@"Rien à afficher pour le moment."));
     _loaded = rows.count > 0;
 
     NSString *focusedShelf = _shelfIndex < (NSInteger)_shelves.count ? [_shelves[_shelfIndex] name] : nil;

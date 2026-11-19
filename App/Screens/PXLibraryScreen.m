@@ -13,6 +13,7 @@
 #import "PXOverlay.h"
 #import "PXMusicPlayer.h"
 #import "PXListLayer.h"
+#import "PXPillBar.h"
 
 static const NSInteger kPage = 60;
 static const CGFloat kGapX = 44, kGapY = 30, kTop = 250;
@@ -54,9 +55,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     CGSize _cellSize;
     PXArtwork _artwork;
     PXAmbientLayer *_ambient;
-    CALayer *_chipsBar;
+    PXPillBar *_chipsBar;
     NSArray *_filters;              // {title, query}
-    NSMutableArray *_chips;         // {pill, text}
     NSInteger _filterIndex;         // filter whose titles the grid shows
     NSInteger _chipIndex;           // chip under the focus (may not be loaded yet)
     BOOL _chipsFocused;
@@ -100,7 +100,6 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     _empty.wrapped = YES;
     _empty.frame = CGRectMake(260, 420, 1400, 120);
     [self.layer addSublayer:_empty];
-    if (self.basePath) _title.string = self.section[@"title"] ?: @"";
     if (self.embedded) {
         // Inside the home tabs: the tab names the library; count on the chips row.
         _title.hidden = YES;
@@ -137,34 +136,14 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     }
     if (self.basePath) [filters setArray:@[ @{ @"title": @"", @"path": self.basePath } ]];
     _filters = filters;
-    _chipsBar = [CALayer layer];
+    _chipsBar = [[PXPillBar alloc] initWithHeight:48];
     _chipsBar.frame = CGRectMake(_left, 150, 1700, 52);
+    _chipsBar.idleColor = [UIColor colorWithWhite:1 alpha:0.06];
     [self.layer addSublayer:_chipsBar];
-    [self buildChips];
+    _chipsBar.titles = [_filters valueForKey:@"title"];
     _chipsBar.hidden = self.basePath != nil;
     [self updateChips];
     [self loadPage:0];
-}
-
-- (void)buildChips {
-    for (NSDictionary *c in _chips) [c[@"pill"] removeFromSuperlayer];
-    _chips = [NSMutableArray array];
-    UIFont *f = PXFontSemi(24);
-    CGFloat x = 0;
-    for (NSDictionary *fd in _filters) {
-        CGFloat w = PXTextWidth(fd[@"title"], f) + 40;
-        CALayer *pill = [CALayer layer];
-        pill.frame = CGRectMake(x, 0, w, 48);
-        pill.cornerRadius = 24;
-        CATextLayer *t = PXText(f, PXColorTextDim());
-        t.alignmentMode = kCAAlignmentCenter;
-        t.string = fd[@"title"];
-        t.frame = CGRectMake(0, (48 - f.lineHeight) / 2 - 1, w, f.lineHeight + 2);
-        [pill addSublayer:t];
-        [_chipsBar addSublayer:pill];
-        [_chips addObject:@{ @"pill": pill, @"text": t }];
-        x += w + 10;
-    }
 }
 
 // "Filtrer": a category (genre, decade, resolution, label), then one of its
@@ -175,7 +154,6 @@ static NSString *pickerTitle(NSString *kind) {
 }
 
 - (void)openPicker:(NSInteger)index {
-    NSMutableDictionary *fd = _filters[index];
     __weak PXLibraryScreen *weak = self;
     NSString *all = [NSString stringWithFormat:@"/library/sections/%@/all?sort=titleSort", self.section[@"key"]];
     NSMutableArray *rows = [NSMutableArray arrayWithObject:[PXListRow title:PXL(@"Aucun filtre") value:@"" action:^{
@@ -189,7 +167,6 @@ static NSString *pickerTitle(NSString *kind) {
         }]];
     _overlay = [PXOverlay overlayInLayer:self.layer title:PXL(@"Filtrer") rows:rows];
     _overlay.onClose = ^{ PXLibraryScreen *me = weak; if (me) me->_overlay = nil; };
-    (void)fd;
 }
 
 // title nil: no filter ("Aucun filtre").
@@ -199,7 +176,7 @@ static NSString *pickerTitle(NSString *kind) {
     fd[@"path"] = path;
     fd[@"chosen"] = @(title != nil);
     [_overlay close];
-    [self buildChips];
+    _chipsBar.titles = [_filters valueForKey:@"title"];
     _filterIndex = -1;            // force the reload
     [self applyFilter:index];
 }
@@ -371,17 +348,7 @@ static NSString *pickerTitle(NSString *kind) {
 }
 
 - (void)updateChips {
-    PXAnim(0.2, ^{
-        for (NSInteger i = 0; i < (NSInteger)self->_chips.count; i++) {
-            BOOL sel = i == self->_filterIndex, foc = i == self->_chipIndex && self->_chipsFocused && self.hasFocus;
-            CALayer *pill = self->_chips[i][@"pill"];
-            CATextLayer *t = self->_chips[i][@"text"];
-            pill.backgroundColor = foc ? PXColorText() : (sel ? PXColorPanelStrong() : PXColorWhite(0.06));
-            t.foregroundColor = foc ? PXColorBlack(0.9) : (sel ? PXColorText() : PXColorTextDim());
-            CGFloat k = foc ? 1.08 : 1.0;
-            pill.transform = CATransform3DMakeScale(k, k, 1);
-        }
-    });
+    [_chipsBar setSelected:_filterIndex focused:_chipsFocused && self.hasFocus ? _chipIndex : -1];
 }
 
 // Chips whose titles load when the focus rests on them: not "Recommandé"

@@ -16,7 +16,6 @@ UIFont *PXFontMedium(CGFloat size);
 UIFont *PXFontSemi(CGFloat size);
 UIFont *PXFontBold(CGFloat size);
 UIFont *PXFontHeavy(CGFloat size);
-UIFont *PXFontLight(CGFloat size);  // regular (no light weight bundled)
 
 // ---- Colors -------------------------------------------------------------
 CGColorRef PXColorBackground(void);   // near-black, slightly blue
@@ -71,7 +70,7 @@ void PXFadeContents(CALayer *layer, CFTimeInterval duration);
 // ---- Shapes / icons -----------------------------------------------------
 typedef NS_ENUM(NSInteger, PXIcon) {
     PXIconPlay, PXIconPause, PXIconRestart, PXIconAudio, PXIconSubtitles, PXIconCheck,
-    PXIconGear, PXIconSearch, PXIconChapters, PXIconInfo, PXIconNext, PXIconStar,
+    PXIconSearch, PXIconChapters, PXIconInfo, PXIconNext, PXIconStar,
 };
 CAShapeLayer *PXIconLayer(PXIcon icon, CGFloat size, CGColorRef color);
 
@@ -79,6 +78,7 @@ CAShapeLayer *PXIconLayer(PXIcon icon, CGFloat size, CGColorRef color);
 CALayer *PXSpinner(CGFloat size);
 
 // ---- Time ---------------------------------------------------------------
-NSString *PXClock(double seconds);          // 1:02:03 or 02:03
+NSString *PXClock(double seconds);          // 1:02:03 or 02:03, "--:--" if unknown
+NSString *PXTrackClock(double seconds);     // 1:02:03 or 2:03, "0:00" if unknown (music)
 NSString *PXDurationText(double seconds);   // "1 h 52" / "47 min"
 NSString *PXWallClock(NSDate *date);        // "21:47"

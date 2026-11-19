@@ -36,27 +36,33 @@
         PXServersScreen *me = weak;
         if (!me || !servers.count) return;
         me->_servers = [PXPlex shared].servers;
-        NSInteger focus = me->_list.focusIndex;
-        [me buildRows];
-        me->_list.focusIndex = focus;
+        [me buildRows];   // the list keeps its focused row
     }];
+}
+
+// Own servers first (then online ones first if asked), by name.
+static NSArray *sortedServers(NSArray *servers, BOOL onlineFirst) {
+    return [servers sortedArrayUsingComparator:^NSComparisonResult(PXServer *a, PXServer *b) {
+        if (a.owned != b.owned) return a.owned ? NSOrderedAscending : NSOrderedDescending;
+        if (onlineFirst && a.online != b.online) return a.online ? NSOrderedAscending : NSOrderedDescending;
+        return [a.name localizedCaseInsensitiveCompare:b.name];
+    }];
+}
+
+// "ton serveur" / "partagé par X", twin label, offline mark.
+static NSString *serverLabel(PXServer *s, NSArray *servers) {
+    NSString *who = s.owned ? PXL(@"ton serveur") : PXLF(@"partagé par %@", s.sourceTitle ?: PXL(@"un ami"));
+    NSString *twin = PXServerTwinLabel(s.resource, [servers valueForKey:@"resource"]);
+    if (twin) who = [NSString stringWithFormat:@"%@ · %@", twin, who];
+    return s.online ? who : [who stringByAppendingString:PXL(@" · hors ligne")];
 }
 
 - (void)buildRows {
     NSMutableArray *rows = [NSMutableArray array];
     __weak PXServersScreen *weak = self;
-    // Own servers first, then shared ones by name.
-    NSArray *sorted = [_servers sortedArrayUsingComparator:^NSComparisonResult(PXServer *a, PXServer *b) {
-        if (a.owned != b.owned) return a.owned ? NSOrderedAscending : NSOrderedDescending;
-        return [a.name localizedCaseInsensitiveCompare:b.name];
-    }];
-    for (PXServer *s in sorted) {
-        NSString *who = s.owned ? PXL(@"ton serveur") : PXLF(@"partagé par %@", s.sourceTitle ?: PXL(@"un ami"));
-        NSString *twin = PXServerTwinLabel(s.resource, [_servers valueForKey:@"resource"]);
-        if (twin) who = [NSString stringWithFormat:@"%@ · %@", twin, who];
-        NSString *value = s.online ? who : [who stringByAppendingString:PXL(@" · hors ligne")];
+    for (PXServer *s in sortedServers(_servers, NO)) {
         NSString *sid = s.identifier;
-        PXListRow *r = [PXListRow title:s.name value:value action:^{ [weak toggle:sid]; }];
+        PXListRow *r = [PXListRow title:s.name value:serverLabel(s, _servers) action:^{ [weak toggle:sid]; }];
         r.checked = [_chosen containsObject:sid];
         [rows addObject:r];
     }
@@ -70,9 +76,7 @@
 
 - (void)toggle:(NSString *)sid {
     if ([_chosen containsObject:sid]) [_chosen removeObject:sid]; else [_chosen addObject:sid];
-    NSInteger focus = _list.focusIndex;
     [self buildRows];
-    _list.focusIndex = focus;
 }
 
 - (void)validate {
@@ -126,25 +130,16 @@ PXScreen *PXServersScreenNew(void (^completion)(void)) {
     [[PXPlex shared] fetchServers:^(NSArray *servers, NSError *err) {
         PXServerListScreen *me = weak;
         if (!me || !servers.count) return;
-        NSInteger focus = me->_list.focusIndex;
         [me buildRows];
-        me->_list.focusIndex = focus;
     }];
 }
 
 - (void)buildRows {
     NSMutableArray *rows = [NSMutableArray array];
     __weak PXServerListScreen *weak = self;
-    NSArray *sorted = [[PXPlex shared].servers sortedArrayUsingComparator:^NSComparisonResult(PXServer *a, PXServer *b) {
-        if (a.owned != b.owned) return a.owned ? NSOrderedAscending : NSOrderedDescending;
-        if (a.online != b.online) return a.online ? NSOrderedAscending : NSOrderedDescending;
-        return [a.name localizedCaseInsensitiveCompare:b.name];
-    }];
-    for (PXServer *s in sorted) {
-        NSString *who = s.owned ? PXL(@"ton serveur") : PXLF(@"partagé par %@", s.sourceTitle ?: PXL(@"un ami"));
-        NSString *twin = PXServerTwinLabel(s.resource, [sorted valueForKey:@"resource"]);
-        if (twin) who = [NSString stringWithFormat:@"%@ · %@", twin, who];
-        PXListRow *r = [PXListRow title:s.name value:s.online ? who : [who stringByAppendingString:PXL(@" · hors ligne")] action:^{
+    NSArray *servers = [PXPlex shared].servers;
+    for (PXServer *s in sortedServers(servers, YES)) {
+        PXListRow *r = [PXListRow title:s.name value:serverLabel(s, servers) action:^{
             [weak push:PXHomeScreenForServer(s)];
         }];
         [rows addObject:r];

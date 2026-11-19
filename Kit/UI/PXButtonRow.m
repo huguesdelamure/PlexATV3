@@ -31,17 +31,22 @@ static const CGFloat kH = 72;
     return self;
 }
 
-static CGFloat buttonWidth(PXButton *b) {
-    CGFloat textW = MIN(PXTextWidth(b.title, PXFontSemi(27)), 330);
-    CGFloat iconW = b.hasIcon ? 30 : 0, gap = b.hasIcon && b.title.length ? 14 : 0;
-    return (b.title.length ? textW : 0) + iconW + gap + (b.title.length ? 64 : 42);
+typedef struct { CGFloat text, icon, gap, width; } PXButtonMetrics;
+
+static PXButtonMetrics measure(PXButton *b) {
+    PXButtonMetrics m;
+    m.text = MIN(PXTextWidth(b.title, PXFontSemi(27)), 330);
+    m.icon = b.hasIcon ? 30 : 0;
+    m.gap = b.hasIcon && b.title.length ? 14 : 0;
+    m.width = (b.title.length ? m.text : 0) + m.icon + m.gap + (b.title.length ? 64 : 42);
+    return m;
 }
 
 - (NSUInteger)countFitting:(NSArray *)buttons {
     CGFloat x = 0;
     NSUInteger n = 0;
     for (PXButton *b in buttons) {
-        CGFloat w = buttonWidth(b);
+        CGFloat w = measure(b).width;
         if (x + w > self.bounds.size.width) break;
         x += w + 18;
         n++;
@@ -56,9 +61,8 @@ static CGFloat buttonWidth(PXButton *b) {
     UIFont *f = PXFontSemi(27);
     CGFloat x = 0, maxW = self.bounds.size.width;
     for (PXButton *b in buttons) {
-        CGFloat textW = MIN(PXTextWidth(b.title, f), 330);
-        CGFloat iconW = b.hasIcon ? 30 : 0, gap = b.hasIcon && b.title.length ? 14 : 0;
-        CGFloat w = (b.title.length ? textW : 0) + iconW + gap + (b.title.length ? 64 : 42);
+        PXButtonMetrics m = measure(b);
+        CGFloat textW = m.text, iconW = m.icon, gap = m.gap, w = m.width;
         if (x + w > maxW) break;
         CALayer *pill = [CALayer layer];
         pill.frame = CGRectMake(x, 0, w, kH);

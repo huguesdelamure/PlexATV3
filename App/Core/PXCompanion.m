@@ -28,7 +28,6 @@ static BOOL isLocalAddress(struct in_addr a);
 @interface PXCompanionSubscriber : NSObject
 @property (nonatomic, copy) NSString *clientId, *host, *protocol;
 @property (nonatomic) int port;
-@property (nonatomic) NSInteger commandID;
 @end
 @implementation PXCompanionSubscriber
 @end
@@ -246,7 +245,7 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
     if ([path isEqual:@"/player/timeline/subscribe"]) {
         PXCompanionSubscriber *s = [PXCompanionSubscriber new];
         s.clientId = client; s.host = host; s.port = [p[@"port"] intValue] ?: 32400;
-        s.protocol = p[@"protocol"] ?: @"http"; s.commandID = [p[@"commandID"] integerValue];
+        s.protocol = p[@"protocol"] ?: @"http";
         _subscribers[client] = s;
         PXLog(@"companion: %@ subscribed", host);
         _lastState = nil;   // the new subscriber gets the current state now

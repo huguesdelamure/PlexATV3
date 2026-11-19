@@ -12,7 +12,7 @@
 @end
 
 @implementation PXLinkScreen {
-    CATextLayer *_code, *_status;
+    CATextLayer *_status;
     NSMutableArray *_boxes;     // per-character boxes
     NSNumber *_pinId;
     NSDate *_pinTime;
@@ -35,12 +35,10 @@
         title.wrapped = YES;
         title.string = PXL(@"Sur un téléphone ou un ordinateur, ouvrez plex.tv/link et saisissez ce code");
         title.frame = CGRectMake(260, 300, 1400, 100);
-        _code = PXText(PXFontHeavy(10), PXColorText());   // kept for state, boxes display it
-        _code.hidden = YES;
         _status = PXText(PXFontMedium(30), PXColorTextDim());
         _status.alignmentMode = kCAAlignmentCenter;
         _status.frame = CGRectMake(160, 740, 1600, 44);
-        for (CALayer *l in @[ head, title, _code, _status ]) [self.layer addSublayer:l];
+        for (CALayer *l in @[ head, title, _status ]) [self.layer addSublayer:l];
         // Four rounded boxes, one per PIN character.
         _boxes = [NSMutableArray array];
         CGFloat bw = 170, gap = 30, x0 = (1920 - (4 * bw + 3 * gap)) / 2;
@@ -92,7 +90,6 @@
             return;
         }
         me->_requesting = NO;
-        PXSetText(me->_code, pin[@"code"]);
         NSString *code = pin[@"code"];
         for (NSUInteger i = 0; i < me->_boxes.count; i++) {
             PXSetText(me->_boxes[i], i < code.length ? [code substringWithRange:NSMakeRange(i, 1)] : @"");
