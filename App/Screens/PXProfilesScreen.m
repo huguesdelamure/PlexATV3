@@ -85,21 +85,21 @@ static NSString *initials(NSString *name) {
         cell.frame = CGRectMake(x + i * (kAvatar + kAvatarGap), kAvatarY, kAvatar, kAvatar + 110);
         CALayer *circle = [CALayer layer];
         circle.frame = CGRectMake(0, 0, kAvatar, kAvatar);
-        circle.cornerRadius = kAvatar / 2;
-        circle.masksToBounds = YES;
+        circle.cornerRadius = kAvatar / 2;   // color and focus border only: the photo comes already round
         circle.backgroundColor = PXColorHex(palette[i % palette.count], 1);
         circle.borderColor = PXColorText();
         [circle addSublayer:PXAsyncLabel(initials(u[@"title"] ?: @""), PXFontHeavy(80), PXColorText(),
                                          CGRectMake(0, (kAvatar - 96) / 2, kAvatar, 96), 1, YES)];
         CALayer *photo = [CALayer layer];
         photo.frame = circle.bounds;
-        photo.contentsGravity = kCAGravityResizeAspectFill;
         [circle addSublayer:photo];
         NSString *thumb = u[@"thumb"];
         if ([thumb isKindOfClass:[NSString class]] && [thumb hasPrefix:@"http"]) {
             // plex.tv itself fails TLS on iOS 8: the initials stay if the image never comes.
-            [[PXImageCache shared] loadURL:[NSURL URLWithString:thumb] size:CGSizeMake(kAvatar, kAvatar) done:^(CGImageRef img) {
-                if (img) { photo.contents = (__bridge id)img; PXFadeContents(photo, 0.2); }
+            [[PXImageCache shared] loadURL:[NSURL URLWithString:thumb] size:CGSizeMake(kAvatar, kAvatar) radius:kAvatar / 2 done:^(CGImageRef img) {
+                if (!img) return;
+                PXFadeContents(photo, 0.2);
+                PXNoAnim(^{ photo.contents = (__bridge id)img; });
             }];
         }
         [cell addSublayer:circle];

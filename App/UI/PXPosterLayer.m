@@ -20,15 +20,20 @@ static const CGFloat kRadius = 12;
     CALayer *_title, *_subtitle;   // text drawn off the main thread
     CGFloat _subtitleY;            // below a 1- or 2-line title
     NSURL *_url;
+    BOOL _batching, _needsRefresh;  // setItem:configure: in progress
 }
 
 static const CGFloat kTitleLine = 30;
+
++ (CGFloat)cellHeightForImageSize:(CGSize)size {
+    return size.height + 80 + kTitleLine;   // title on up to 2 lines
+}
 
 - (instancetype)initWithImageSize:(CGSize)size artwork:(PXArtwork)artwork {
     if ((self = [super init])) {
         _imageSize = size;
         _artwork = artwork;
-        _cellHeight = size.height + 80 + kTitleLine;   // title on up to 2 lines
+        _cellHeight = [PXPosterLayer cellHeightForImageSize:size];
         self.bounds = CGRectMake(0, 0, size.width, _cellHeight);
         self.anchorPoint = CGPointZero;
         CGRect ib = CGRectMake(0, 0, size.width, size.height);
@@ -117,8 +122,26 @@ static const CGFloat kTitleLine = 30;
     [self refresh];
 }
 
-- (void)setTitleOverride:(NSString *)t { _titleOverride = [t copy]; [self refresh]; }
-- (void)setSubtitleOverride:(NSString *)t { _subtitleOverride = [t copy]; [self refresh]; }
+- (void)setTitleOverride:(NSString *)t {
+    if (t == _titleOverride || [t isEqual:_titleOverride]) return;
+    _titleOverride = [t copy];
+    [self refresh];
+}
+
+- (void)setSubtitleOverride:(NSString *)t {
+    if (t == _subtitleOverride || [t isEqual:_subtitleOverride]) return;
+    _subtitleOverride = [t copy];
+    [self refresh];
+}
+
+- (void)setItem:(PXItem *)item configure:(void (^)(void))configure {
+    _batching = YES;
+    _needsRefresh = NO;
+    self.item = item;
+    if (configure) configure();
+    _batching = NO;
+    if (_needsRefresh) [self refresh];
+}
 
 - (NSString *)defaultSubtitle {
     PXItem *it = _item;
@@ -162,6 +185,7 @@ static const CGFloat kTitleLine = 30;
 }
 
 - (void)refresh {
+    if (_batching) { _needsRefresh = YES; return; }
     PXItem *it = _item;
     PXNoAnim(^{
         NSString *title = self->_titleOverride ?: it.shelfTitle;

@@ -140,6 +140,7 @@ static const CGFloat kD = 150, kGap = 44;
     CGFloat _width;
     CALayer *_content;
     NSMutableArray *_cells;    // {root, photo, ring, name, role}
+    NSInteger _litIndex;       // cell drawn focused (-1: none)
     CATextLayer *_title;
 }
 
@@ -158,6 +159,7 @@ static const CGFloat kD = 150, kGap = 44;
         _content.position = CGPointMake(110, 56);
         [self addSublayer:_content];
         _cells = [NSMutableArray array];
+        _litIndex = -1;
     }
     return self;
 }
@@ -166,6 +168,7 @@ static const CGFloat kD = 150, kGap = 44;
     _people = [people copy];
     for (NSDictionary *c in _cells) [c[@"root"] removeFromSuperlayer];
     [_cells removeAllObjects];
+    _litIndex = -1;
     NSArray *list = people.count > 20 ? [people subarrayWithRange:NSMakeRange(0, 20)] : people;
     for (NSUInteger i = 0; i < list.count; i++) {
         NSDictionary *p = list[i];
@@ -217,20 +220,25 @@ static const CGFloat kD = 150, kGap = 44;
 - (void)update:(BOOL)animated {
     NSInteger visible = MAX(1, (NSInteger)((_width - 110) / (kD + kGap)) - 1);
     NSInteger first = MAX(0, _focusIndex - visible + 1);
-    for (NSInteger i = 0; i < (NSInteger)_cells.count; i++) {
-        NSDictionary *c = _cells[i];
-        BOOL f = _active && i == _focusIndex;
-        CALayer *root = c[@"root"];
-        BOOL was = [[root valueForKey:@"pxFocused"] boolValue];
-        [root setValue:@(f) forKey:@"pxFocused"];
-        if (f != was) PXSpringScale(root, f ? 1.1 : 1.0);
-        PXAnim(0.2, ^{
-            [c[@"ring"] setOpacity:f ? 1 : 0];
-            [c[@"name"] setOpacity:f ? 1.0 : 0.62];
-        });
+    // Only the cell losing the focus and the one getting it change.
+    NSInteger lit = _active && _focusIndex < (NSInteger)_cells.count ? _focusIndex : -1;
+    if (lit != _litIndex) {
+        [self drawCell:_litIndex focused:NO];
+        [self drawCell:lit focused:YES];
+        _litIndex = lit;
     }
     CGPoint p = CGPointMake(110 - first * (kD + kGap), 56);
     if (animated) PXAnim(0.3, ^{ self->_content.position = p; }); else PXNoAnim(^{ self->_content.position = p; });
+}
+
+- (void)drawCell:(NSInteger)i focused:(BOOL)f {
+    if (i < 0 || i >= (NSInteger)_cells.count) return;
+    NSDictionary *c = _cells[i];
+    PXSpringScale(c[@"root"], f ? 1.1 : 1.0);
+    PXAnim(0.2, ^{
+        [c[@"ring"] setOpacity:f ? 1 : 0];
+        [c[@"name"] setOpacity:f ? 1.0 : 0.62];
+    });
 }
 
 - (BOOL)moveBy:(NSInteger)delta {

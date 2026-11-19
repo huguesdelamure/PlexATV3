@@ -26,6 +26,7 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     CALayer *_keyboard;
     NSMutableArray *_keys;          // rows of {layer, text, value}
     NSInteger _kr, _kc;             // focused key
+    NSInteger _litR, _litC;         // key drawn focused (-1: none)
     NSString *_kbLayout;            // layout the keyboard was built with
     BOOL _inResults;
     CALayer *_resultsLayer;
@@ -109,6 +110,7 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     else [self.layer addSublayer:_keyboard];
     _kbLayout = PXKeyboardLayout();
     _keys = [NSMutableArray array];
+    _litR = _litC = -1;
     UIFont *f = PXFontSemi(34);
     NSArray *layoutRows = PXKeyboardRows();
     for (NSInteger r = 0; r <= kRowCount; r++) {
@@ -145,22 +147,26 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     }
 }
 
+// Only the key losing the focus and the one getting it are redrawn.
 - (void)updateKeys {
-    for (NSInteger r = 0; r < (NSInteger)_keys.count; r++) {
-        for (NSInteger c = 0; c < (NSInteger)[_keys[r] count]; c++) {
-            NSDictionary *k = _keys[r][c];
-            BOOL f = !_inResults && self.hasFocus && r == _kr && c == _kc;
-            CALayer *l = k[@"layer"];
-            BOOL was = [[l valueForKey:@"pxFocused"] boolValue];
-            [l setValue:@(f) forKey:@"pxFocused"];
-            PXAnim(0.15, ^{
-                l.backgroundColor = f ? PXColorText() : PXColorWhite(0.08);
-                [k[@"text"] setForegroundColor:f ? PXColorBlack(0.9) : PXColorTextDim()];
-            });
-            if (f != was) PXSpringScale(l, f ? 1.12 : 1.0);
-        }
+    BOOL lit = !_inResults && self.hasFocus;
+    NSInteger r = lit ? _kr : -1, c = lit ? _kc : -1;
+    if (r != _litR || c != _litC) {
+        [self drawKeyAtRow:_litR column:_litC focused:NO];
+        [self drawKeyAtRow:r column:c focused:YES];
+        _litR = r;
+        _litC = c;
     }
     PXAnim(0.3, ^{ self->_keyboard.opacity = self->_inResults ? 0 : 1; });
+}
+
+- (void)drawKeyAtRow:(NSInteger)r column:(NSInteger)c focused:(BOOL)f {
+    if (r < 0 || r >= (NSInteger)_keys.count || c < 0 || c >= (NSInteger)[_keys[r] count]) return;
+    NSDictionary *k = _keys[r][c];
+    CALayer *l = k[@"layer"];
+    PXAnim(0.15, ^{ l.backgroundColor = f ? PXColorText() : PXColorWhite(0.08); });
+    PXNoAnim(^{ [k[@"text"] setForegroundColor:f ? PXColorBlack(0.9) : PXColorTextDim()]; });
+    PXSpringScale(l, f ? 1.12 : 1.0);
 }
 
 - (void)pressKey {
@@ -250,27 +256,43 @@ static const CGFloat kKey = 76, kKeyGap = 10, kKbX = 110;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), finish);
 }
 
+// Shelves of the previous answer are reused when a row of the same type and
+// title comes back (typing refines the same rows): only their items change.
 - (void)showResults:(NSArray *)rows {
-    for (PXShelfLayer *s in _shelves) [s removeFromSuperlayer];
-    [_shelves removeAllObjects];
+    NSMutableDictionary *old = [NSMutableDictionary dictionary];   // "type|title" -> shelf
+    for (PXShelfLayer *s in _shelves) old[s.name] = s;
+    NSMutableArray *shelves = [NSMutableArray array];
     CGFloat y = 0;
     for (NSDictionary *r in rows) {
-        BOOL wide = [@[ @"episode", @"photo" ] containsObject:r[@"type"]];
-        BOOL square = [@[ @"artist", @"album", @"track" ] containsObject:r[@"type"]];
-        PXShelfLayer *s = [[PXShelfLayer alloc] initWithTitle:r[@"title"] width:1920
-                                                    imageSize:wide ? CGSizeMake(352, 198) : (square ? CGSizeMake(210, 210) : CGSizeMake(170, 255))
-                                                      artwork:wide ? PXArtworkThumb : PXArtworkPoster];
-        // Results from other servers say where they are.
-        s.configure = ^(PXPosterLayer *cell, PXItem *it, NSInteger i) {
-            if (![it isKindOfClass:[PXItem class]] || it.server == [PXPlex shared].primaryServer || it.server.provider) return;
-            NSString *sub = it.type == PXItemEpisode ? it.episodeCode : it.shelfSubtitle;
-            cell.subtitleOverride = sub.length ? [NSString stringWithFormat:@"%@ · %@", sub, it.server.name] : it.server.name;
-        };
+        NSString *rowId = [NSString stringWithFormat:@"%@|%@", r[@"type"], r[@"title"]];
+        PXShelfLayer *s = old[rowId];
+        [old removeObjectForKey:rowId];
+        if (s) {
+            [s setFocusIndex:0 animated:NO];   // like a new shelf: from the first result
+        } else {
+            BOOL wide = [@[ @"episode", @"photo" ] containsObject:r[@"type"]];
+            BOOL square = [@[ @"artist", @"album", @"track" ] containsObject:r[@"type"]];
+            s = [[PXShelfLayer alloc] initWithTitle:r[@"title"] width:1920
+                                          imageSize:wide ? CGSizeMake(352, 198) : (square ? CGSizeMake(210, 210) : CGSizeMake(170, 255))
+                                            artwork:wide ? PXArtworkThumb : PXArtworkPoster];
+            s.name = rowId;
+            // Results from other servers say where they are.
+            s.configure = ^(PXPosterLayer *cell, PXItem *it, NSInteger i) {
+                if (![it isKindOfClass:[PXItem class]] || it.server == [PXPlex shared].primaryServer || it.server.provider) return;
+                NSString *sub = it.type == PXItemEpisode ? it.episodeCode : it.shelfSubtitle;
+                cell.subtitleOverride = sub.length ? [NSString stringWithFormat:@"%@ · %@", sub, it.server.name] : it.server.name;
+            };
+        }
         s.items = r[@"items"];
-        PXNoAnim(^{ s.position = CGPointMake(0, y); [self->_resultsLayer addSublayer:s]; });
+        PXNoAnim(^{
+            s.position = CGPointMake(0, y);
+            if (s.superlayer != self->_resultsLayer) [self->_resultsLayer addSublayer:s];
+        });
         y += s.height - 10;
-        [_shelves addObject:s];
+        [shelves addObject:s];
     }
+    for (PXShelfLayer *s in old.allValues) [s removeFromSuperlayer];
+    _shelves = shelves;
     _shelfIndex = 0;
     if (!_shelves.count) _inResults = NO;
     [self updateResultsFocus];

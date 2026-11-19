@@ -16,6 +16,7 @@
 @implementation PXPhotoScreen {
     CALayer *_images[2];            // cross-fade: the new photo fades in over the old one
     NSInteger _front;               // index of the layer showing the current photo
+    CALayer *_captionBar;           // dark gradient + caption, shown / hidden together
     CATextLayer *_caption;
     BOOL _slideshow;
     NSInteger _serial;              // photo asked last
@@ -32,12 +33,16 @@
         _images[i].opacity = 0;
         [self.layer addSublayer:_images[i]];
     }
+    // Readable over light photos: a gradient under the text, not a text
+    // shadow (no shadowPath on a text layer: offscreen pass on every frame).
+    CAGradientLayer *bar = [CAGradientLayer layer];
+    bar.frame = CGRectMake(0, 900, 1920, 180);
+    bar.colors = @[ (__bridge id)PXColorBlack(0), (__bridge id)PXColorBlack(0.55) ];
+    _captionBar = bar;
     _caption = PXText(PXFontMedium(26), PXColorWhite(0.8));
-    _caption.frame = CGRectMake(110, 1000, 1700, 36);
-    _caption.shadowOpacity = 0.8;
-    _caption.shadowRadius = 4;
-    _caption.shadowOffset = CGSizeZero;
-    [self.layer addSublayer:_caption];
+    _caption.frame = CGRectMake(110, 100, 1700, 36);
+    [_captionBar addSublayer:_caption];
+    [self.layer addSublayer:_captionBar];
     [self show];
 }
 
@@ -66,7 +71,7 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
                       (long)_index + 1, (unsigned long)_photos.count];
     if ([date length]) text = [text stringByAppendingFormat:@"   %@", date];
     PXSetText(_caption, text);
-    PXAnim(0.3, ^{ self->_caption.opacity = self->_slideshow ? 0 : 1; });
+    PXAnim(0.3, ^{ self->_captionBar.opacity = self->_slideshow ? 0 : 1; });
 }
 
 // The back layer takes the photo and fades in; the front one fades out
@@ -79,7 +84,7 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
         next.transform = CATransform3DIdentity;
         next.contents = (__bridge id)img;
         next.opacity = 0;
-        [self.layer insertSublayer:next below:self->_caption];
+        [self.layer insertSublayer:next below:self->_captionBar];
     });
     [self kenBurns];
     PXAnim(_slideshow ? 0.8 : 0.2, ^{ next.opacity = 1; old.opacity = 0; });
@@ -122,7 +127,7 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
 - (void)setSlideshow:(BOOL)on {
     _slideshow = on;
     _slideToken++;
-    PXAnim(0.3, ^{ self->_caption.opacity = on ? 0 : 1; });
+    PXAnim(0.3, ^{ self->_captionBar.opacity = on ? 0 : 1; });
     [self kenBurns];
     [self scheduleSlide];
 }

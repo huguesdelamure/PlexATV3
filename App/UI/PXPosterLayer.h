@@ -8,6 +8,7 @@ typedef NS_ENUM(NSInteger, PXArtwork) { PXArtworkPoster, PXArtworkThumb };
 
 @interface PXPosterLayer : CALayer
 - (instancetype)initWithImageSize:(CGSize)size artwork:(PXArtwork)artwork;
++ (CGFloat)cellHeightForImageSize:(CGSize)size;        // image + texts, without a cell
 @property (nonatomic, readonly) CGSize imageSize;
 @property (nonatomic, readonly) CGFloat cellHeight;    // image + texts
 @property (nonatomic, strong) PXItem *item;            // nil = placeholder
@@ -17,4 +18,6 @@ typedef NS_ENUM(NSInteger, PXArtwork) { PXArtworkPoster, PXArtworkThumb };
 @property (nonatomic, assign) BOOL anchorLeft;
 @property (nonatomic, copy) NSString *titleOverride;   // e.g. episode title in a season row
 @property (nonatomic, copy) NSString *subtitleOverride;
+// Sets the item, then runs `configure` (overrides), with a single refresh.
+- (void)setItem:(PXItem *)item configure:(void (^)(void))configure;
 @end

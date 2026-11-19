@@ -108,6 +108,12 @@
     return YES;
 }
 
+- (void)setChecked:(BOOL)checked atIndex:(NSUInteger)index {
+    if (index >= _rows.count) return;
+    [_rows[index] setChecked:checked];
+    PXNoAnim(^{ [self->_rowLayers[index][@"check"] setString:checked ? @"✓" : @""]; });
+}
+
 - (void)activate {
     if (_focusIndex < 0 || _focusIndex >= (NSInteger)_rows.count) return;
     PXListRow *r = _rows[_focusIndex];

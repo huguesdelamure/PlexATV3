@@ -20,4 +20,5 @@
 - (BOOL)handleUp;
 - (BOOL)handleDown;
 - (void)activate;                                // runs the focused row action
+- (void)setChecked:(BOOL)checked atIndex:(NSUInteger)index;   // one row's ✓, no rebuild
 @end

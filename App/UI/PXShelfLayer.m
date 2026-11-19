@@ -28,8 +28,7 @@ static const CGFloat kTitleH = 56;
         _content = [CALayer layer];
         _content.anchorPoint = CGPointZero;
         [self addSublayer:_content];
-        PXPosterLayer *probe = [[PXPosterLayer alloc] initWithImageSize:size artwork:artwork];
-        _height = kTitleH + probe.cellHeight + 30;
+        _height = kTitleH + [PXPosterLayer cellHeightForImageSize:size] + 30;
         self.anchorPoint = CGPointZero;
         self.bounds = CGRectMake(0, 0, width, _height);
         self.title = title;
@@ -78,8 +77,9 @@ static const CGFloat kTitleH = 56;
 
 - (void)configureCell:(PXPosterLayer *)c index:(NSInteger)i {
     id it = _items[i];
-    c.item = [it isKindOfClass:[NSNull class]] ? nil : it;
-    if (self.configure) self.configure(c, it, i);
+    void (^configure)(PXPosterLayer *, id, NSInteger) = self.configure;
+    // Overrides set in the same pass as the item: one refresh per cell.
+    [c setItem:[it isKindOfClass:[NSNull class]] ? nil : it configure:configure ? ^{ configure(c, it, i); } : nil];
 }
 
 - (PXPosterLayer *)cellForIndex:(NSInteger)i {

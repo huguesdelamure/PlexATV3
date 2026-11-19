@@ -22,6 +22,9 @@
     CALayer *_rows;
     NSMutableArray *_shelves;
     NSInteger _index;
+    NSInteger _placedIndex;         // row the page is scrolled to (-1: none yet)
+    PXItem *_pendingAmbient;
+    BOOL _ambientShown;
     CATextLayer *_status;
 }
 
@@ -33,6 +36,7 @@
     _rows.position = CGPointMake(0, 140);
     [self.layer addSublayer:_rows];
     _shelves = [NSMutableArray array];
+    _placedIndex = -1;
     _status = PXText(PXFontMedium(30), PXColorTextDim());
     _status.frame = CGRectMake(110, 200, 1700, 40);
     _status.string = PXL(@"Chargement…");
@@ -99,13 +103,27 @@
 - (void)updateFocus {
     for (NSInteger i = 0; i < (NSInteger)_shelves.count; i++) [_shelves[i] setActive:self.hasFocus && i == _index];
     if (_index >= (NSInteger)_shelves.count) return;
-    CGFloat y = 140 - [_shelves[_index] position].y;
-    PXAnim(0.35, ^{
-        self->_rows.position = CGPointMake(0, y);
-        for (NSInteger i = 0; i < (NSInteger)self->_shelves.count; i++) [self->_shelves[i] setOpacity:i < self->_index ? 0 : 1];
+    if (_index != _placedIndex) {
+        _placedIndex = _index;
+        CGFloat y = 140 - [_shelves[_index] position].y;
+        PXAnim(0.35, ^{
+            self->_rows.position = CGPointMake(0, y);
+            for (NSInteger i = 0; i < (NSInteger)self->_shelves.count; i++) [self->_shelves[i] setOpacity:i < self->_index ? 0 : 1];
+        });
+    }
+    [self showAmbient:[_shelves[_index] focusedItem]];
+}
+
+// The ambient backdrop follows once the focus rests (like the home).
+- (void)showAmbient:(PXItem *)it {
+    if (!it) return;
+    if (!_ambientShown) { _ambientShown = YES; [_ambient showItem:it]; return; }   // first display: immediate
+    _pendingAmbient = it;
+    __weak PXDiscoverScreen *weak = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 350 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        PXDiscoverScreen *me = weak;
+        if (me && me->_pendingAmbient == it) { me->_pendingAmbient = nil; [me->_ambient showItem:it]; }
     });
-    PXItem *it = [_shelves[_index] focusedItem];
-    if (it) [_ambient showItem:it];
 }
 
 - (void)focusChanged { [self updateFocus]; }
@@ -114,7 +132,7 @@
     if (!_shelves.count) return NO;
     PXShelfLayer *s = _shelves[_index];
     switch (key) {
-        case PXKeyLeft: case PXKeyRight: [s moveBy:key == PXKeyLeft ? -1 : 1]; [self updateFocus]; return YES;
+        case PXKeyLeft: case PXKeyRight: if ([s moveBy:key == PXKeyLeft ? -1 : 1]) [self showAmbient:s.focusedItem]; return YES;
         case PXKeyDown: if (_index + 1 < (NSInteger)_shelves.count) { _index++; [self updateFocus]; } return YES;
         case PXKeyUp: if (_index == 0) return NO; _index--; [self updateFocus]; return YES;   // first row: back to the tabs
         case PXKeySelect: if (s.focusedItem) [self push:PXScreenForItem(s.focusedItem)]; return YES;

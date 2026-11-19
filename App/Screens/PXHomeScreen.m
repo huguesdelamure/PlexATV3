@@ -537,6 +537,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     _historyHub = nil;
     for (PXShelfLayer *sh in _shelves) [sh removeFromSuperlayer];
     [_shelves removeAllObjects];
+    _shelfIndex = 0;
     [self reload];
 }
 
@@ -687,7 +688,21 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     return out;
 }
 
+// What a refresh can change on a hub item: watch state and progress
+// (leaf counts: the unwatched badge of shows and seasons). The server
+// address too: cells cache artwork URLs on the item.
+static NSString *itemSignature(PXItem *it) {
+    NSDictionary *r = it.raw;
+    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@|%@|%@", it.uniqueKey, r[@"viewOffset"], r[@"viewCount"], r[@"lastViewedAt"],
+            r[@"viewedLeafCount"], r[@"leafCount"], it.server.uri];
+}
+
 - (void)showHubs:(NSArray *)hubs error:(NSError *)err {
+    // Items already shown and unchanged keep their PXItem (cells and hero
+    // compare pointers / keys): a refresh redraws only what changed.
+    NSMutableDictionary *oldItems = [NSMutableDictionary dictionary];   // uniqueKey -> PXItem
+    for (PXShelfLayer *s in _shelves) for (PXItem *it in s.items) oldItems[it.uniqueKey] = it;
+    NSMutableDictionary *newSigs = [NSMutableDictionary dictionary];    // uniqueKey -> signature
     NSMutableArray *rows = [NSMutableArray array];
     NSMutableSet *inProgress = [NSMutableSet set];   // shown in "Continuer à regarder"
     for (NSDictionary *h in hubs) {
@@ -698,19 +713,29 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
         BOOL cont = [hid containsString:@"continue"];
         BOOL deck = [hid containsString:@"ondeck"];
         NSMutableArray *videos = [NSMutableArray array];
-        for (PXItem *it in [PXItem itemsWithJSON:h[@"Metadata"]]) {
-            if (it.type == PXItemOther) continue;
+        NSMutableArray *sigs = [NSMutableArray array];
+        for (PXItem *fresh in [PXItem itemsWithJSON:h[@"Metadata"]]) {
+            if (fresh.type == PXItemOther) continue;
             // "À l'affiche" repeats what "Continuer à regarder" already shows.
-            if (deck && [inProgress containsObject:it.uniqueKey]) continue;
-            if (cont) [inProgress addObject:it.uniqueKey];
-            [videos addObject:it];
+            if (deck && [inProgress containsObject:fresh.uniqueKey]) continue;
+            if (cont) [inProgress addObject:fresh.uniqueKey];
+            NSString *sig = itemSignature(fresh);
+            PXItem *prev = oldItems[fresh.uniqueKey];
+            [videos addObject:prev && [itemSignature(prev) isEqual:sig] ? prev : fresh];
+            newSigs[fresh.uniqueKey] = sig;
+            [sigs addObject:sig];
         }
         if (!videos.count) continue;
         BOOL cards = !music && (cont || deck || PXItemsPreferLandscape(videos));
-        [rows addObject:@{ @"title": h[@"title"] ?: @"", @"id": hid, @"items": videos, @"cards": @(cards), @"square": @(music) }];
+        [rows addObject:@{ @"title": h[@"title"] ?: @"", @"id": hid, @"items": videos, @"cards": @(cards), @"square": @(music),
+                           @"signature": [sigs componentsJoinedByString:@"\n"] }];
     }
     PXLog(@"home: %lu shelves", (unsigned long)rows.count);
-    [_fullItems removeAllObjects];   // fresh hubs: refetch full items (summary, watch state)
+    // Full items (summary, watch state) refetched only for what changed.
+    for (NSString *k in _fullItems.allKeys) {
+        PXItem *prev = oldItems[k];
+        if (!prev || ![itemSignature(prev) isEqual:newSigs[k]]) [_fullItems removeObjectForKey:k];
+    }
     PXSetText(_status, rows.count ? @"" : (err ? err.localizedDescription : PXL(@"Rien à afficher pour le moment.")));
     _loaded = rows.count > 0;
 
@@ -731,25 +756,35 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
             s.name = r[@"id"];
         }
         [old removeObjectForKey:r[@"id"]];
-        s.title = r[@"title"];
-        s.items = r[@"items"];
-        PXNoAnim(^{ s.position = CGPointMake(0, y); [self->_shelvesLayer addSublayer:s]; });
+        if (![s.title isEqual:r[@"title"]]) s.title = r[@"title"];
+        // Same items in the same state: the cells stay as they are.
+        if (![[s valueForKey:@"pxSignature"] isEqual:r[@"signature"]]) {
+            s.items = r[@"items"];
+            [s setValue:r[@"signature"] forKey:@"pxSignature"];
+        }
+        PXNoAnim(^{
+            s.position = CGPointMake(0, y);
+            if (s.superlayer != self->_shelvesLayer) [self->_shelvesLayer addSublayer:s];
+        });
         y += s.height - 10;
         [shelves addObject:s];
     }
     for (PXShelfLayer *s in old.allValues) [s removeFromSuperlayer];
     _shelves = shelves;
 
-    NSInteger idx = 0;
+    // Focus: same shelf (else the same position), same item (found by key if it moved).
+    NSInteger idx = _shelfIndex;
     for (NSInteger i = 0; i < (NSInteger)_shelves.count; i++) if ([[_shelves[i] name] isEqual:focusedShelf]) idx = i;
     _shelfIndex = MIN(idx, MAX(0, (NSInteger)_shelves.count - 1));
     if (focusedItem && _shelfIndex < (NSInteger)_shelves.count) {
         PXShelfLayer *s = _shelves[_shelfIndex];
         NSUInteger i = [s.items indexOfObjectPassingTest:^BOOL(PXItem *it, NSUInteger n, BOOL *stop) { return [it.uniqueKey isEqual:focusedItem.uniqueKey]; }];
-        if (i != NSNotFound) [s setFocusIndex:i animated:NO];
+        if (i != NSNotFound && (NSInteger)i != s.focusIndex) [s setFocusIndex:i animated:NO];
     }
     if (!_shelves.count) _tabsFocused = YES;
-    _heroItem = nil;
+    // Hero rebuilt (~300 ms) only when the focused title changed or its state did.
+    PXItem *focused = _shelfIndex < (NSInteger)_shelves.count ? [_shelves[_shelfIndex] focusedItem] : nil;
+    if (!focused || ![focused.uniqueKey isEqual:_heroItem.uniqueKey] || ![itemSignature(focused) isEqual:itemSignature(_heroItem)]) _heroItem = nil;
     _pendingHero = nil;
     [self updateFocus:NO];
 }

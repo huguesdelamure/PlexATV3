@@ -304,7 +304,10 @@ void PXNoAnim(void (^block)(void)) {
 void PXAnim(CFTimeInterval duration, void (^block)(void)) {
     [CATransaction begin];
     [CATransaction setAnimationDuration:duration];
-    [CATransaction setAnimationTimingFunction:[CAMediaTimingFunction functionWithControlPoints:0.2 :0.8 :0.2 :1.0]];
+    static CAMediaTimingFunction *ease;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ ease = [CAMediaTimingFunction functionWithControlPoints:0.2 :0.8 :0.2 :1.0]; });
+    [CATransaction setAnimationTimingFunction:ease];
     block();
     [CATransaction commit];
 }

@@ -57,7 +57,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     CALayer *_chipsBar;
     NSArray *_filters;              // {title, query}
     NSMutableArray *_chips;         // {pill, text}
-    NSInteger _filterIndex;
+    NSInteger _filterIndex;         // filter whose titles the grid shows
+    NSInteger _chipIndex;           // chip under the focus (may not be loaded yet)
     BOOL _chipsFocused;
     PXOverlay *_overlay;            // genre / decade picker
     NSInteger _generation;          // bumped on every filter change: late pages are dropped
@@ -178,7 +179,7 @@ static NSString *pickerTitle(NSString *kind) {
     __weak PXLibraryScreen *weak = self;
     NSString *all = [NSString stringWithFormat:@"/library/sections/%@/all?sort=titleSort", self.section[@"key"]];
     NSMutableArray *rows = [NSMutableArray arrayWithObject:[PXListRow title:PXL(@"Aucun filtre") value:@"" action:^{
-        [weak choose:PXL(@"Filtrer") path:all forFilter:index];
+        [weak choose:nil path:all forFilter:index];
     }]];
     for (NSString *kind in @[ @"genre", @"decade", @"resolution", @"label" ])
         [rows addObject:[PXListRow title:[pickerTitle(kind) stringByAppendingString:@"…"] value:@"" action:^{
@@ -191,10 +192,12 @@ static NSString *pickerTitle(NSString *kind) {
     (void)fd;
 }
 
+// title nil: no filter ("Aucun filtre").
 - (void)choose:(NSString *)title path:(NSString *)path forFilter:(NSInteger)index {
     NSMutableDictionary *fd = _filters[index];
-    fd[@"title"] = title;
+    fd[@"title"] = title ?: PXL(@"Filtrer");
     fd[@"path"] = path;
+    fd[@"chosen"] = @(title != nil);
     [_overlay close];
     [self buildChips];
     _filterIndex = -1;            // force the reload
@@ -226,8 +229,7 @@ static NSString *pickerTitle(NSString *kind) {
     _cols = landscape ? 4 : (_square ? 6 : 7);
     _cellSize = landscape ? CGSizeMake(380, 214) : (_square ? CGSizeMake(240, 240) : CGSizeMake(200, 300));
     _artwork = landscape ? PXArtworkThumb : PXArtworkPoster;
-    PXPosterLayer *probe = [[PXPosterLayer alloc] initWithImageSize:_cellSize artwork:_artwork];
-    _rowH = probe.cellHeight + kGapY;
+    _rowH = [PXPosterLayer cellHeightForImageSize:_cellSize] + kGapY;
     _left = (1920 - (_cols * _cellSize.width + (_cols - 1) * kGapX)) / 2;
     // Cells of the other size cannot be reused.
     for (CALayer *c in [_grid.sublayers copy]) [c removeFromSuperlayer];   // visible and hidden (pooled) cells
@@ -361,6 +363,7 @@ static NSString *pickerTitle(NSString *kind) {
 }
 
 - (void)focusChanged {
+    _chipIndex = _filterIndex;
     // Entering from the tab bar lands on the filter chips.
     if (self.hasFocus && self.embedded && !self.basePath) _chipsFocused = YES;
     [self updateChips];
@@ -370,7 +373,7 @@ static NSString *pickerTitle(NSString *kind) {
 - (void)updateChips {
     PXAnim(0.2, ^{
         for (NSInteger i = 0; i < (NSInteger)self->_chips.count; i++) {
-            BOOL sel = i == self->_filterIndex, foc = sel && self->_chipsFocused && self.hasFocus;
+            BOOL sel = i == self->_filterIndex, foc = i == self->_chipIndex && self->_chipsFocused && self.hasFocus;
             CALayer *pill = self->_chips[i][@"pill"];
             CATextLayer *t = self->_chips[i][@"text"];
             pill.backgroundColor = foc ? PXColorText() : (sel ? PXColorPanelStrong() : PXColorWhite(0.06));
@@ -381,7 +384,30 @@ static NSString *pickerTitle(NSString *kind) {
     });
 }
 
+// Chips whose titles load when the focus rests on them: not "Recommandé"
+// (Select opens a page) nor "Filtrer" until a value is chosen (Select opens
+// the picker).
+- (BOOL)loadsOnFocus:(NSInteger)index {
+    NSDictionary *fd = _filters[index];
+    if ([fd[@"hubs"] boolValue]) return NO;
+    return !fd[@"picker"] || [fd[@"chosen"] boolValue];
+}
+
+- (void)focusChip:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)_filters.count || index == _chipIndex) return;
+    _chipIndex = index;
+    [self updateChips];
+    if (![self loadsOnFocus:index]) return;
+    __weak PXLibraryScreen *weak = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        PXLibraryScreen *me = weak;
+        // Only if the focus is still resting on that chip.
+        if (me && me->_chipsFocused && me.hasFocus && me->_chipIndex == index) [me applyFilter:index];
+    });
+}
+
 - (void)applyFilter:(NSInteger)index {
+    _chipIndex = index;
     if (index == _filterIndex) return;
     _filterIndex = index;
     _generation++;
@@ -455,18 +481,21 @@ static NSString *pickerTitle(NSString *kind) {
 
 - (BOOL)handleKey:(PXKey)key {
     if (_overlay) return [_overlay handleKey:key];
-    if (_chipsFocused && key == PXKeySelect && _filters[_filterIndex][@"picker"]) { if (!_overlay) [self openPicker:_filterIndex]; return YES; }
-    if (_chipsFocused && key == PXKeySelect && [_filters[_filterIndex][@"hubs"] boolValue]) {
+    if (_chipsFocused && key == PXKeySelect && _filters[_chipIndex][@"picker"]) { if (!_overlay) [self openPicker:_chipIndex]; return YES; }
+    if (_chipsFocused && key == PXKeySelect && [_filters[_chipIndex][@"hubs"] boolValue]) {
         [self push:PXHubsScreenNew(self.section[@"title"], [NSString stringWithFormat:@"/hubs/sections/%@?count=20", self.section[@"key"]],
                                    [[PXPlex shared] serverFor:self.section])];
         return YES;
     }
     if (_chipsFocused) {
         switch (key) {
-            case PXKeyLeft:  [self applyFilter:MAX(0, _filterIndex - 1)]; return YES;
-            case PXKeyRight: [self applyFilter:MIN((NSInteger)_filters.count - 1, _filterIndex + 1)]; return YES;
+            case PXKeyLeft:  [self focusChip:_chipIndex - 1]; return YES;
+            case PXKeyRight: [self focusChip:_chipIndex + 1]; return YES;
             case PXKeyDown: case PXKeySelect:
-                if (_total) { _chipsFocused = NO; [self updateChips]; [self layoutCells:YES]; }
+                // No wait when going down quickly; a chip that does not load
+                // on focus leaves the grid on the filter it shows.
+                if (_chipIndex != _filterIndex && [self loadsOnFocus:_chipIndex]) [self applyFilter:_chipIndex];
+                if (_total) { _chipsFocused = NO; _chipIndex = _filterIndex; [self updateChips]; [self layoutCells:YES]; }
                 else if (key == PXKeySelect) [self loadPage:0];   // retry an empty or failed list
                 return YES;
             default: return NO;

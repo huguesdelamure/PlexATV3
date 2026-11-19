@@ -20,17 +20,19 @@ static NSString *PXTrackClock(double s) {
                      : [NSString stringWithFormat:@"%ld:%02ld", t / 60, t % 60];
 }
 
-static CALayer *PXCover(PXItem *it, CGFloat size) {
+// Corners baked into the image (no masksToBounds: no offscreen pass);
+// cornerRadius only rounds the placeholder color, which is free.
+static CALayer *PXCover(PXItem *it, CGFloat size, CGFloat radius) {
     CALayer *l = [CALayer layer];
     l.bounds = CGRectMake(0, 0, size, size);
-    l.cornerRadius = 12;
-    l.masksToBounds = YES;
+    l.cornerRadius = radius;
     l.backgroundColor = PXColorWhite(0.08);
-    l.contentsGravity = kCAGravityResizeAspectFill;
     NSString *thumb = it.thumb ?: it.raw[@"parentThumb"];
     NSURL *u = thumb ? [it.server imageURL:thumb width:(int)size height:(int)size] : nil;
-    if (u) [[PXImageCache shared] loadURL:u size:CGSizeMake(size, size) done:^(CGImageRef img) {
-        if (img) { l.contents = (__bridge id)img; PXFadeContents(l, 0.2); }
+    if (u) [[PXImageCache shared] loadURL:u size:CGSizeMake(size, size) radius:radius done:^(CGImageRef img) {
+        if (!img) return;
+        PXFadeContents(l, 0.2);
+        PXNoAnim(^{ l.contents = (__bridge id)img; l.backgroundColor = NULL; });
     }];
     return l;
 }
@@ -113,7 +115,7 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     if (![t.uniqueKey isEqual:_shownKey]) {
         _shownKey = t.uniqueKey;
         [_cover removeFromSuperlayer];
-        _cover = PXCover(t, 600);
+        _cover = PXCover(t, 600, 12);
         _cover.position = CGPointMake(110 + 300, 540);
         [self.layer addSublayer:_cover];
         [_ambient showItem:t];
@@ -262,6 +264,7 @@ PXScreen *PXNowPlayingScreenNew(void) {
     PXListLayer *_list;
     NSArray *_tracks;
     NSString *_markedKey;      // track shown with ✓
+    BOOL _needsRows;           // track changed while covered: rebuilt on return
 }
 
 - (void)setup {
@@ -269,7 +272,7 @@ PXScreen *PXNowPlayingScreenNew(void) {
     PXAmbientLayer *ambient = [[PXAmbientLayer alloc] initWithFrame:self.layer.bounds style:PXAmbientBlurOnly];
     [self.layer addSublayer:ambient];
     [ambient showItem:self.album];
-    CALayer *cover = PXCover(self.album, 520);
+    CALayer *cover = PXCover(self.album, 520, 12);
     cover.position = CGPointMake(110 + 260, 120 + 260);
     [self.layer addSublayer:cover];
     PXItem *a = self.album;
@@ -301,6 +304,8 @@ PXScreen *PXNowPlayingScreenNew(void) {
         [rows addObject:[PXListRow title:PXL(@"Aléatoire") value:@"" action:^{ [weak playFrom:0 shuffle:YES]; }]];
     }
     PXItem *playing = [PXMusicPlayer shared].current;
+    _markedKey = playing.uniqueKey;
+    _needsRows = NO;
     for (NSInteger i = 0; i < (NSInteger)_tracks.count; i++) {
         PXItem *t = _tracks[i];
         NSString *title = t.index ? [NSString stringWithFormat:@"%ld.  %@", (long)t.index, t.title ?: @""] : (t.title ?: @"");
@@ -314,12 +319,27 @@ PXScreen *PXNowPlayingScreenNew(void) {
     _list.focusIndex = MIN(focus, (NSInteger)rows.count - 1);
 }
 
+// Row of a track in the list (after "Tout lire" and "Aléatoire"), NSNotFound if none.
+- (NSUInteger)rowOfTrack:(NSString *)key {
+    NSUInteger i = key ? [_tracks indexOfObjectPassingTest:^BOOL(PXItem *t, NSUInteger n, BOOL *stop) { return [t.uniqueKey isEqual:key]; }] : NSNotFound;
+    return i == NSNotFound ? NSNotFound : i + 2;
+}
+
 - (void)musicChanged {
-    // Only the ✓ of the track being played: rebuild when the track changes.
+    // Only the ✓ of the track being played changes.
     NSString *k = [PXMusicPlayer shared].current.uniqueKey;
     if ([k isEqual:_markedKey] || (!k && !_markedKey)) return;
+    if (!_tracks.count) { _markedKey = k; return; }   // rows not built yet: they will read it
+    if (![self isOnTop]) { _needsRows = YES; return; }
+    NSUInteger was = [self rowOfTrack:_markedKey], now = [self rowOfTrack:k];
     _markedKey = k;
-    [self buildRows];
+    if (was != NSNotFound) [_list setChecked:NO atIndex:was];
+    if (now != NSNotFound) [_list setChecked:YES atIndex:now];
+}
+
+- (void)didAppear {
+    [super didAppear];
+    if (_needsRows) [self buildRows];
 }
 
 - (void)playFrom:(NSInteger)i shuffle:(BOOL)shuffle {
@@ -371,8 +391,7 @@ PXScreen *PXAlbumScreenNew(PXItem *album) {
     _ambient = [[PXAmbientLayer alloc] initWithFrame:self.layer.bounds style:PXAmbientBlurOnly];
     [self.layer addSublayer:_ambient];
     [_ambient showItem:self.artist];
-    CALayer *photo = PXCover(self.artist, 260);
-    photo.cornerRadius = 130;
+    CALayer *photo = PXCover(self.artist, 260, 130);
     photo.position = CGPointMake(110 + 130, 70 + 130);
     [self.layer addSublayer:photo];
     [self.layer addSublayer:PXAsyncLabel(self.artist.title ?: @"", PXFontHeavy(64), PXColorText(), CGRectMake(420, 80, 1400, 80), 1, NO)];
