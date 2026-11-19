@@ -143,6 +143,7 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
 // Lyrics stream of the track (streamType 4), LRC ("[mm:ss.xx] line") or text.
 - (void)loadLyrics:(PXItem *)t {
     _lyrics = nil;
+    [self styleLyrics];
     [self showLyricsAt:0];
     NSString *key = t.uniqueKey;
     __weak PXNowPlayingScreen *weak = self;
@@ -156,36 +157,58 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
             if (!me || !text.length || ![key isEqual:me->_shownKey]) return;
             me->_lyrics = [PXNowPlayingScreen parseLyrics:text];
             PXLog(@"music: %lu lyric lines for %@", (unsigned long)me->_lyrics.count, t.title);
+            [me styleLyrics];
+            [me showLyricsAt:[PXMusicPlayer shared].elapsed];
         }];
     }];
 }
 
+// LRC lines may carry several start tags ("[00:12.00][01:40.00] chorus"):
+// one entry per tag, sorted by time. Without any tag: plain text (time -1).
 + (NSArray *)parseLyrics:(NSString *)text {
-    NSMutableArray *out = [NSMutableArray array];
+    NSMutableArray *timed = [NSMutableArray array], *plain = [NSMutableArray array];
     NSRegularExpression *tag = [NSRegularExpression regularExpressionWithPattern:@"^\\[(\\d+):(\\d+(?:\\.\\d+)?)\\]" options:0 error:NULL];
     for (NSString *raw in [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
         NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        NSTextCheckingResult *r = [tag firstMatchInString:line options:0 range:NSMakeRange(0, line.length)];
-        if (r) {
-            double sec = [[line substringWithRange:[r rangeAtIndex:1]] doubleValue] * 60 + [[line substringWithRange:[r rangeAtIndex:2]] doubleValue];
-            NSString *words = [[line substringFromIndex:r.range.length] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-            [out addObject:@{ @"time": @(sec), @"text": words }];
-        } else if (line.length && ![line hasPrefix:@"["]) {
-            [out addObject:@{ @"time": @(-1), @"text": line }];
+        NSMutableArray *times = [NSMutableArray array];
+        NSTextCheckingResult *r;
+        while ((r = [tag firstMatchInString:line options:0 range:NSMakeRange(0, line.length)])) {
+            [times addObject:@([[line substringWithRange:[r rangeAtIndex:1]] doubleValue] * 60 + [[line substringWithRange:[r rangeAtIndex:2]] doubleValue])];
+            line = [[line substringFromIndex:r.range.length] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         }
+        if (times.count) { for (NSNumber *sec in times) [timed addObject:@{ @"time": sec, @"text": line }]; }
+        else if (line.length && ![line hasPrefix:@"["]) [plain addObject:@{ @"time": @(-1), @"text": line }];   // "[ar:…]" tags skipped
     }
-    return out;
+    if (!timed.count) return plain;
+    [timed sortWithOptions:NSSortStable usingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) { return [a[@"time"] compare:b[@"time"]]; }];
+    return timed;
+}
+
+- (BOOL)lyricsSynced {
+    return _lyrics.count && [_lyrics.firstObject[@"time"] doubleValue] >= 0;
+}
+
+// Synced: the current line stands out. Plain text: a fixed block of the
+// first lines, all alike (no position to follow).
+- (void)styleLyrics {
+    BOOL synced = !_lyrics.count || [self lyricsSynced];
+    PXNoAnim(^{ self->_lyricNow.foregroundColor = synced ? PXColorText() : PXColorTextFaint(); });
 }
 
 - (void)showLyricsAt:(double)t {
     NSString *prev = @"", *now = @"", *next = @"";
     if (_lyrics.count) {
-        BOOL synced = [_lyrics.firstObject[@"time"] doubleValue] >= 0;
         NSInteger i = 0;
-        if (synced) { for (NSInteger k = 0; k < (NSInteger)_lyrics.count; k++) if ([_lyrics[k][@"time"] doubleValue] <= t) i = k; }
-        if (i > 0) prev = _lyrics[i - 1][@"text"];
-        now = _lyrics[i][@"text"];
-        if (i + 1 < (NSInteger)_lyrics.count) next = _lyrics[i + 1][@"text"];
+        if ([self lyricsSynced]) {
+            for (NSInteger k = 0; k < (NSInteger)_lyrics.count; k++) if ([_lyrics[k][@"time"] doubleValue] <= t) i = k;
+            if (i > 0) prev = _lyrics[i - 1][@"text"];
+            now = _lyrics[i][@"text"];
+            if (i + 1 < (NSInteger)_lyrics.count) next = _lyrics[i + 1][@"text"];
+        } else {
+            prev = _lyrics[0][@"text"];
+            if (_lyrics.count > 1) now = _lyrics[1][@"text"];
+            if (_lyrics.count > 2) next = _lyrics[2][@"text"];
+        }
     }
     PXNoAnim(^{ PXSetText(self->_lyricPrev, prev); PXSetText(self->_lyricNow, now); PXSetText(self->_lyricNext, next); });
 }

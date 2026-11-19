@@ -14,19 +14,24 @@
 @end
 
 @implementation PXPhotoScreen {
-    CALayer *_image;
+    CALayer *_images[2];            // cross-fade: the new photo fades in over the old one
+    NSInteger _front;               // index of the layer showing the current photo
     CATextLayer *_caption;
-    dispatch_source_t _timer;
     BOOL _slideshow;
-    NSInteger _serial;
+    NSInteger _serial;              // photo asked last
+    NSInteger _shownSerial;         // photo displayed (or failed): the slideshow may go on
+    NSInteger _slideToken;          // invalidates a scheduled slideshow step
 }
 
 - (void)setup {
     self.layer.backgroundColor = [UIColor blackColor].CGColor;
-    _image = [CALayer layer];
-    _image.frame = self.layer.bounds;
-    _image.contentsGravity = kCAGravityResizeAspect;
-    [self.layer addSublayer:_image];
+    for (int i = 0; i < 2; i++) {
+        _images[i] = [CALayer layer];
+        _images[i].frame = self.layer.bounds;
+        _images[i].contentsGravity = kCAGravityResizeAspect;
+        _images[i].opacity = 0;
+        [self.layer addSublayer:_images[i]];
+    }
     _caption = PXText(PXFontMedium(26), PXColorWhite(0.8));
     _caption.frame = CGRectMake(110, 1000, 1700, 36);
     _caption.shadowOpacity = 0.8;
@@ -48,10 +53,10 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
     __weak PXPhotoScreen *weak = self;
     [[PXImageCache shared] loadURL:photoURL(p, 1920, 1080) size:CGSizeMake(1920, 1080) done:^(CGImageRef img) {
         PXPhotoScreen *me = weak;
-        if (!me || serial != me->_serial || !img) return;
-        me->_image.contents = (__bridge id)img;
-        PXFadeContents(me->_image, me->_slideshow ? 0.8 : 0.2);
-        [me kenBurns];
+        if (!me || serial != me->_serial) return;
+        if (img) [me display:img];
+        me->_shownSerial = serial;
+        [me scheduleSlide];   // a photo that fails to load does not stop the slideshow
     }];
     // Next one in the cache before it is asked for.
     if (_index + 1 < (NSInteger)_photos.count)
@@ -64,19 +69,47 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
     PXAnim(0.3, ^{ self->_caption.opacity = self->_slideshow ? 0 : 1; });
 }
 
+// The back layer takes the photo and fades in; the front one fades out
+// while keeping its own Ken Burns motion.
+- (void)display:(CGImageRef)img {
+    CALayer *old = _images[_front], *next = _images[1 - _front];
+    _front = 1 - _front;
+    PXNoAnim(^{
+        [next removeAllAnimations];
+        next.transform = CATransform3DIdentity;
+        next.contents = (__bridge id)img;
+        next.opacity = 0;
+        [self.layer insertSublayer:next below:self->_caption];
+    });
+    [self kenBurns];
+    PXAnim(_slideshow ? 0.8 : 0.2, ^{ next.opacity = 1; old.opacity = 0; });
+}
+
 // Slideshow: a slow zoom and pan over each photo (direction varies).
 - (void)kenBurns {
-    [_image removeAnimationForKey:@"kenburns"];
-    if (!_slideshow) { _image.transform = CATransform3DIdentity; return; }
+    CALayer *l = _images[_front];
+    [l removeAnimationForKey:@"kenburns"];
+    if (!_slideshow) { PXNoAnim(^{ l.transform = CATransform3DIdentity; }); return; }
     CGFloat dx = ((int)arc4random_uniform(3) - 1) * 40, dy = ((int)arc4random_uniform(3) - 1) * 24;
     CATransform3D end = CATransform3DTranslate(CATransform3DMakeScale(1.12, 1.12, 1), dx, dy, 0);
     CABasicAnimation *a = [CABasicAnimation animationWithKeyPath:@"transform"];
     a.fromValue = [NSValue valueWithCATransform3D:CATransform3DIdentity];
     a.toValue = [NSValue valueWithCATransform3D:end];
-    a.duration = 5.5;
+    a.duration = 5.5 + 0.8;   // until the next photo has faded in
     a.fillMode = kCAFillModeForwards;
     a.removedOnCompletion = NO;
-    [_image addAnimation:a forKey:@"kenburns"];
+    [l addAnimation:a forKey:@"kenburns"];
+}
+
+// Next photo 5 s after the current one is displayed (slow links included).
+- (void)scheduleSlide {
+    if (!_slideshow || _shownSerial != _serial) return;
+    NSInteger token = ++_slideToken;
+    __weak PXPhotoScreen *weak = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        PXPhotoScreen *me = weak;
+        if (me && me->_slideshow && token == me->_slideToken) [me move:1];
+    });
 }
 
 - (void)move:(NSInteger)d {
@@ -88,16 +121,10 @@ static NSURL *photoURL(PXItem *p, int w, int h) {
 
 - (void)setSlideshow:(BOOL)on {
     _slideshow = on;
-    if (_timer) { dispatch_source_cancel(_timer); _timer = nil; }
-    if (on) {
-        __weak PXPhotoScreen *weak = self;
-        _timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-        dispatch_source_set_timer(_timer, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), 5 * NSEC_PER_SEC, NSEC_PER_SEC / 2);
-        dispatch_source_set_event_handler(_timer, ^{ [weak move:1]; });
-        dispatch_resume(_timer);
-    }
+    _slideToken++;
     PXAnim(0.3, ^{ self->_caption.opacity = on ? 0 : 1; });
     [self kenBurns];
+    [self scheduleSlide];
 }
 
 - (void)willDisappear { [super willDisappear]; [self setSlideshow:NO]; }

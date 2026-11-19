@@ -62,6 +62,8 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     PXOverlay *_overlay;            // genre / decade picker
     NSInteger _generation;          // bumped on every filter change: late pages are dropped
     NSString *_ambientKey;
+    CATextLayer *_empty;            // empty list or first page error
+    BOOL _fetchingTracks;           // whole track list asked before playing
 }
 
 - (void)setup {
@@ -92,6 +94,11 @@ static void PXRememberSectionLayout(NSDictionary *section, BOOL landscape) {
     _count.frame = CGRectMake(1920 - _left - 600, 72, 600, 40);
     [self.layer addSublayer:_title];
     [self.layer addSublayer:_count];
+    _empty = PXText(PXFont(34), PXColorTextDim());
+    _empty.alignmentMode = kCAAlignmentCenter;
+    _empty.wrapped = YES;
+    _empty.frame = CGRectMake(260, 420, 1400, 120);
+    [self.layer addSublayer:_empty];
     if (self.basePath) _title.string = self.section[@"title"] ?: @"";
     if (self.embedded) {
         // Inside the home tabs: the tab names the library; count on the chips row.
@@ -244,13 +251,24 @@ static NSString *pickerTitle(NSString *kind) {
     [[[PXPlex shared] serverFor:self.section] get:[self pathForPage:page] done:^(NSDictionary *mc, NSError *err) {
         PXLibraryScreen *me = weak;
         if (!me || me->_filterIndex != filter || me->_generation != generation) return;
-        if (err) { [me->_loadingPages removeObject:@(page)]; PXSetText(me->_count, err.localizedDescription); return; }
+        if (err) {
+            [me->_loadingPages removeObject:@(page)];
+            PXSetText(me->_count, err.localizedDescription);
+            // Nothing shown yet: say it in the grid (Select or coming back retries).
+            if (!me->_total) PXSetText(me->_empty, err.localizedDescription);
+            return;
+        }
         NSInteger total = [mc[@"totalSize"] integerValue] ?: [mc[@"size"] integerValue];
         if (me->_total != total) {
             me->_total = total;
             while ((NSInteger)me->_items.count < total) [me->_items addObject:[NSNull null]];
+            // Fewer titles than before (watched, removed): drop the tail.
+            if ((NSInteger)me->_items.count > total) [me->_items removeObjectsInRange:NSMakeRange(total, me->_items.count - total)];
+            me->_focus = MIN(me->_focus, MAX(0, total - 1));
             PXSetText(me->_count, total > 1 ? PXLF(@"%ld titres", (long)total) : PXLF(@"%ld titre", (long)total));
         }
+        PXSetText(me->_empty, total ? @"" : PXL(@"Rien à afficher pour le moment."));
+        if (!total && !me.basePath && !me->_chipsFocused) { me->_chipsFocused = YES; [me updateChips]; }
         NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"] ?: mc[@"Directory"]];   // photo albums may come as Directory
         // Item lists of music (artist's albums, playlists of tracks): square covers.
         PXItemType t0 = [(PXItem *)items.firstObject type];
@@ -270,6 +288,7 @@ static NSString *pickerTitle(NSString *kind) {
         for (NSUInteger i = 0; i < items.count && start + (NSInteger)i < (NSInteger)me->_items.count; i++)
             me->_items[start + i] = items[i];
         [me layoutCells:NO];
+        [me updateAmbient];
     }];
 }
 
@@ -376,24 +395,54 @@ static NSString *pickerTitle(NSString *kind) {
     _focus = 0;
     _firstRow = 0;
     PXSetText(_count, @"");
-    [self loadPage:0];
+    PXSetText(_empty, @"");
+    [self loadPage:0];   // the ambient follows once its first item is there
 }
 
 - (void)didAppear {
     [super didAppear];
     // Back from a detail screen: progress / watched state may have changed.
-    if (_total) {
+    // Nothing loaded yet (first page failed): try again.
+    if (!_total) [self loadPage:0];
+    else {
         NSInteger page = _focus / kPage;
         [_loadingPages removeObject:@(page)];
         [self loadPage:page];
     }
 }
 
-// Tracks of this list (audio playlist…) from the chosen one on.
+// Tracks of this list (audio playlist…) from the chosen one on. Pages not
+// loaded yet are fetched first: the queue holds the whole list.
 - (void)playTracksFrom:(PXItem *)track {
+    if (![_items containsObject:[NSNull null]]) { [self playTracks:_items from:track]; return; }
+    if (_fetchingTracks) return;
+    _fetchingTracks = YES;
+    NSString *path = _filters[_filterIndex][@"path"];
+    path = [NSString stringWithFormat:@"%@%@X-Plex-Container-Start=0&X-Plex-Container-Size=%ld",
+            path, [path containsString:@"?"] ? @"&" : @"?", (long)_total];
+    NSInteger generation = _generation;
+    __weak PXLibraryScreen *weak = self;
+    [[[PXPlex shared] serverFor:self.section] get:path done:^(NSDictionary *mc, NSError *err) {
+        PXLibraryScreen *me = weak;
+        if (!me) return;
+        me->_fetchingTracks = NO;
+        if (generation != me->_generation || ![me isOnTop]) return;
+        NSArray *all = [PXItem itemsWithJSON:mc[@"Metadata"]];
+        if (err || !all.count) { PXLog(@"library: track list: %@", err.localizedDescription); all = me->_items; }   // the loaded pages
+        [me playTracks:all from:track];
+    }];
+}
+
+- (void)playTracks:(NSArray *)list from:(PXItem *)track {
     NSMutableArray *tracks = [NSMutableArray array];
-    for (id it in _items) if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemTrack) [tracks addObject:it];
-    [[PXMusicPlayer shared] playTracks:tracks startAt:MAX(0, (NSInteger)[tracks indexOfObject:track]) shuffle:NO];
+    NSInteger start = -1;
+    for (id it in list) {
+        if (![it isKindOfClass:[PXItem class]] || ((PXItem *)it).type != PXItemTrack) continue;
+        if (start < 0 && [[it uniqueKey] isEqual:track.uniqueKey]) start = tracks.count;
+        [tracks addObject:it];
+    }
+    if (!tracks.count) return;
+    [[PXMusicPlayer shared] playTracks:tracks startAt:MAX(0, start) shuffle:NO];
     [self push:PXNowPlayingScreenNew()];
 }
 
@@ -418,6 +467,7 @@ static NSString *pickerTitle(NSString *kind) {
             case PXKeyRight: [self applyFilter:MIN((NSInteger)_filters.count - 1, _filterIndex + 1)]; return YES;
             case PXKeyDown: case PXKeySelect:
                 if (_total) { _chipsFocused = NO; [self updateChips]; [self layoutCells:YES]; }
+                else if (key == PXKeySelect) [self loadPage:0];   // retry an empty or failed list
                 return YES;
             default: return NO;
         }
@@ -433,6 +483,7 @@ static NSString *pickerTitle(NSString *kind) {
         case PXKeyFastForward: [self moveTo:MIN(_focus + _cols * 3, _total - 1)]; return YES;
         case PXKeyRewind: [self moveTo:MAX(_focus - _cols * 3, 0)]; return YES;
         case PXKeySelect: {
+            if (!_total) { [self loadPage:0]; return YES; }   // lists without chips: retry a failed first page
             id it = _focus < (NSInteger)_items.count ? _items[_focus] : nil;
             if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemPhoto) { [self openPhoto:it]; return YES; }
             if ([it isKindOfClass:[PXItem class]] && ((PXItem *)it).type == PXItemTrack) { [self playTracksFrom:it]; return YES; }

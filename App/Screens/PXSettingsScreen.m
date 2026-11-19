@@ -69,10 +69,7 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
         BOOL ask = [PXSettingGet(@"profileAtLaunch") isEqual:@"ask"];
         [rows addObject:[PXListRow title:PXL(@"Profil au lancement") value:ask ? PXL(@"Toujours demander") : PXL(@"Dernier profil") action:^{
             PXSettingSet(@"profileAtLaunch", ask ? @"last" : @"ask");
-            PXSettingsScreen *me = weak;
-            NSInteger focus = me->_list.focusIndex;
-            [me buildMain];
-            me->_list.focusIndex = focus;
+            [weak rebuildKeepingFocus];
         }]];
     }
     [rows addObjectsFromArray:@[
@@ -129,10 +126,7 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
             BOOL on = ![PXCompanion enabled];
             PXSettingSet(@"companion", @(on));
             if (on) [[PXCompanion shared] start]; else [[PXCompanion shared] stop];
-            PXSettingsScreen *me = weak;
-            NSInteger focus = me->_list.focusIndex;
-            [me buildMain];
-            me->_list.focusIndex = focus;
+            [weak rebuildKeepingFocus];
         }],
         [PXListRow title:PXL(@"Se déconnecter de plex.tv") value:@"" action:^{
             [[PXPlex shared] signOut];
@@ -233,6 +227,12 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
 }
 
 - (void)pickServer {
+    [self pickServerWithError:nil forServer:nil];
+}
+
+// Server list, focus on the current server (or on the one that just failed,
+// its row showing why).
+- (void)pickServerWithError:(NSString *)failure forServer:(NSString *)failedId {
     _pickingServer = YES;
     _list.rows = @[ [PXListRow title:PXL(@"Recherche des serveurs…") value:@"" action:nil] ];
     __weak PXSettingsScreen *weak = self;
@@ -240,6 +240,7 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
         PXSettingsScreen *me = weak;
         if (!me || !me->_pickingServer) return;
         NSMutableArray *rows = [NSMutableArray array];
+        NSInteger checkedRow = 0;
         NSString *current = PXSettingGet(@"serverId");
         for (NSDictionary *s in servers) {
             NSString *who = [s[@"owned"] boolValue] ? @"" : (s[@"sourceTitle"] ?: PXL(@"partagé"));
@@ -249,15 +250,23 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
                 PXListRow *wait = [PXListRow title:PXLF(@"Connexion à %@…", s[@"name"]) value:@"" action:nil];
                 PXSettingsScreen *me2 = weak; if (me2) me2->_list.rows = @[ wait ];
                 [[PXPlex shared] connectToServer:s done:^(id conn, NSError *e) {
+                    PXSettingsScreen *me3 = weak;
+                    if (!me3) return;
                     if (e) PXLog(@"settings: %@ unreachable: %@", s[@"name"], e.localizedDescription);
-                    [weak buildMain];
+                    // Failed and still on the picker (no Menu meanwhile): back
+                    // on the list, the reason on the server row.
+                    if (e && me3->_pickingServer) { [me3 pickServerWithError:e.localizedDescription forServer:s[@"clientIdentifier"]]; return; }
+                    [me3 buildMain];
                 }];
             }];
             r.checked = [s[@"clientIdentifier"] isEqual:current];
+            if (r.checked) checkedRow = rows.count;
+            if (failedId && [s[@"clientIdentifier"] isEqual:failedId]) { r.value = failure; checkedRow = rows.count; }
             [rows addObject:r];
         }
         if (!rows.count) [rows addObject:[PXListRow title:err ? err.localizedDescription : PXL(@"Aucun serveur") value:@"" action:nil]];
         me->_list.rows = rows;
+        me->_list.focusIndex = checkedRow;
     }];
 }
 

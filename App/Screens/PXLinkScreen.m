@@ -17,6 +17,9 @@
     NSNumber *_pinId;
     NSDate *_pinTime;
     BOOL _done, _gone;
+    BOOL _requesting;           // PIN asked (or retry pending): one chain only
+    BOOL _serverFailed;         // findServer failed: Select tries again
+    BOOL _findingServer;
 }
 
 - (instancetype)init {
@@ -70,6 +73,14 @@
 - (void)didPop { _gone = YES; [super didPop]; }
 
 - (void)requestPin {
+    if (_gone || _requesting) return;
+    _requesting = YES;
+    [self createPin];
+}
+
+// Stays "requesting" through the retries, until a PIN is shown.
+- (void)createPin {
+    if (_gone) return;
     PXSetText(_status, PXL(@"Demande du code…"));
     __weak PXLinkScreen *weak = self;
     [[PXPlex shared] createPin:^(NSDictionary *pin, NSError *err) {
@@ -77,9 +88,10 @@
         if (!me || me->_gone) return;
         if (err || !pin[@"code"]) {
             PXSetText(me->_status, PXLF(@"plex.tv injoignable (%@), nouvel essai…", err.localizedDescription));
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [weak requestPin]; });
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [weak createPin]; });
             return;
         }
+        me->_requesting = NO;
         PXSetText(me->_code, pin[@"code"]);
         NSString *code = pin[@"code"];
         for (NSUInteger i = 0; i < me->_boxes.count; i++) {
@@ -105,7 +117,6 @@
             me->_done = YES;
             [[PXPlex shared] saveAuthToken:token];
             PXLog(@"link: account linked");
-            PXSetText(me->_status, PXL(@"Compte associé. Recherche du serveur…"));
             [me findServer];
             return;
         }
@@ -114,24 +125,42 @@
 }
 
 - (void)findServer {
+    if (_findingServer) return;
+    _findingServer = YES;
+    _serverFailed = NO;
+    PXSetText(_status, PXL(@"Compte associé. Recherche du serveur…"));
     __weak PXLinkScreen *weak = self;
     [[PXPlex shared] fetchServers:^(NSArray *servers, NSError *err) {
         PXLinkScreen *me = weak;
-        if (!me) return;
+        if (!me || me->_gone) return;
         NSDictionary *pick = nil;
         for (NSDictionary *s in servers) if ([s[@"owned"] boolValue]) { pick = s; break; }
         if (!pick) pick = servers.firstObject;
-        if (!pick) { PXSetText(me->_status, PXL(@"Aucun serveur Plex sur ce compte.")); return; }
+        if (!pick) { [me serverFailed:err ? err.localizedDescription : PXL(@"Aucun serveur Plex sur ce compte.")]; return; }
         PXSetText(me->_status, PXLF(@"Connexion à %@…", pick[@"name"]));
         [[PXPlex shared] connectToServer:pick done:^(id conn, NSError *e) {
             PXLinkScreen *me2 = weak;
-            if (!me2) return;
-            if (e) { PXSetText(me2->_status, [NSString stringWithFormat:@"%@ : %@", pick[@"name"], e.localizedDescription]); return; }
+            if (!me2 || me2->_gone) return;
+            if (e) { [me2 serverFailed:[NSString stringWithFormat:@"%@ : %@", pick[@"name"], e.localizedDescription]]; return; }
+            me2->_findingServer = NO;
+            // Only if the screen is still the one shown (not left with Menu).
+            if (![me2 isOnTop]) return;
             void (^completion)(void) = me2.completion;
             [me2 pop];
             if (completion) completion();
         }];
     }];
+}
+
+- (void)serverFailed:(NSString *)message {
+    _findingServer = NO;
+    _serverFailed = YES;
+    PXSetText(_status, [NSString stringWithFormat:@"%@ · %@", message, PXL(@"Sélectionnez pour réessayer.")]);
+}
+
+- (BOOL)handleKey:(PXKey)key {
+    if (key == PXKeySelect && _serverFailed) { [self findServer]; return YES; }
+    return [super handleKey:key];
 }
 
 @end

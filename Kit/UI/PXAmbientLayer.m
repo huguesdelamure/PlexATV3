@@ -31,6 +31,7 @@ static CGImageRef blurImage(NSDictionary *c) {
     NSString *_artPath;
     NSString *_blurKey;
     CGFloat _artOpacity;
+    BOOL _artShown;                 // art contents are current (not a hidden leftover)
 }
 
 - (instancetype)initWithFrame:(CGRect)frame style:(PXAmbientStyle)style {
@@ -91,7 +92,7 @@ static CGImageRef blurImage(NSDictionary *c) {
 
 - (void)setArtOpacity:(CGFloat)opacity {
     _artOpacity = opacity;
-    if (_art.contents) PXAnim(0.4, ^{ self->_art.opacity = opacity; });
+    if (_artShown) PXAnim(0.4, ^{ self->_art.opacity = opacity; });
 }
 
 - (void)showColors:(NSDictionary *)colors artURL:(NSURL *)url {
@@ -100,7 +101,7 @@ static CGImageRef blurImage(NSDictionary *c) {
     NSString *path = url.absoluteString;
     if ([path isEqual:_artPath] || (!path && !_artPath)) return;
     _artPath = path;
-    if (!url) { PXAnim(0.5, ^{ self->_art.opacity = 0; }); return; }
+    if (!url) { _artShown = NO; PXAnim(0.5, ^{ self->_art.opacity = 0; }); return; }
     CGSize s = _artSize;
     // Fades baked into the bitmap: the art melts into the ambient colors.
     CGFloat fl = _style == PXAmbientHome ? 0.5 : 0.62, fb = _style == PXAmbientHome ? 0.55 : 0.5;
@@ -110,6 +111,7 @@ static CGImageRef blurImage(NSDictionary *c) {
         if (!me || ![path isEqual:me->_artPath] || !img) return;
         PXFadeContents(me->_art, 0.6);
         PXNoAnim(^{ me->_art.contents = (__bridge id)img; });
+        me->_artShown = YES;
         PXAnim(0.6, ^{ me->_art.opacity = me->_artOpacity; });
     }];
 }

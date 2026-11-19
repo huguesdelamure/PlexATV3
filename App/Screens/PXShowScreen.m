@@ -48,6 +48,9 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     PXShowZone _zone;
     PXItem *_show, *_onDeck;
     NSString *_loadedSeason;
+    NSInteger _showGeneration;      // only the latest loadShow answers are applied
+    BOOL _shuffling;                // shuffle list asked, player not pushed yet
+    CATextLayer *_status;           // load errors (the page keeps what it shows)
 }
 
 - (void)setup {
@@ -86,17 +89,31 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     _epSummary.frame = CGRectMake(kLeft, kEpisodesY + 412, 1400, 150);
     [_page addSublayer:_epTitle];
     [_page addSublayer:_epSummary];
+    _status = PXText(PXFontMedium(26), PXColorTextDim());
+    _status.frame = CGRectMake(kLeft, 60, 1700, 36);
+    [self.layer addSublayer:_status];
     [self loadShow];
+}
+
+- (void)showError:(NSError *)err {
+    PXLog(@"show: %@", err.localizedDescription);
+    PXSetText(_status, PXLF(@"%@ injoignable : %@", self.server.name ?: @"", err.localizedDescription ?: @""));
 }
 
 #pragma mark - Data
 
 - (void)loadShow {
     __weak PXShowScreen *weak = self;
+    NSInteger generation = ++_showGeneration;
     [self.server get:[NSString stringWithFormat:@"/library/metadata/%@?includeOnDeck=1&includeExtras=1", self.showKey] done:^(NSDictionary *mc, NSError *err) {
         PXShowScreen *me = weak;
         id m = [mc[@"Metadata"] isKindOfClass:[NSArray class]] ? [mc[@"Metadata"] firstObject] : nil;
-        if (!me || !m) return;
+        if (!me || generation != me->_showGeneration) return;
+        if (!m) {
+            [me showError:err ?: [NSError errorWithDomain:@"PXPlex" code:4 userInfo:@{ NSLocalizedDescriptionKey: PXL(@"Élément introuvable") }]];
+            return;
+        }
+        PXSetText(me->_status, @"");
         me->_show = [PXItem itemWithJSON:m];
         id od = m[@"OnDeck"][@"Metadata"];
         if ([od isKindOfClass:[NSArray class]]) od = [od firstObject];
@@ -106,7 +123,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         [me renderHeader];
         [me playTheme];
     }];
-    [self loadSeasons];
+    [self loadSeasons:generation];
 }
 
 - (void)renderHeader {
@@ -142,7 +159,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         [b addObject:[PXButton icon:PXIconPlay title:label action:^{
             PXShowScreen *me = weak;
             PXItem *n = me ? me->_onDeck : nil;
-            if (n) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? -1 : 0)];
+            if (n && [me isOnTop]) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? -1 : 0)];
         }]];
     }
     [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lire la saison") action:^{ [weak playSeason]; }]];
@@ -162,11 +179,13 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     _buttons.active = _zone == PXShowButtons;
 }
 
-- (void)loadSeasons {
+- (void)loadSeasons:(NSInteger)generation {
     __weak PXShowScreen *weak = self;
     [self.server get:[NSString stringWithFormat:@"/library/metadata/%@/children", self.showKey] done:^(NSDictionary *mc, NSError *err) {
         PXShowScreen *me = weak;
-        if (!me) return;
+        if (!me || generation != me->_showGeneration) return;
+        // Keep the seasons shown (pills, Down) on a failed refresh.
+        if (err) { [me showError:err]; return; }
         NSMutableArray *seasons = [NSMutableArray array];
         for (PXItem *it in [PXItem itemsWithJSON:mc[@"Metadata"]]) if (it.type == PXItemSeason) [seasons addObject:it];
         me->_seasons = seasons;
@@ -260,6 +279,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     [self.server get:[NSString stringWithFormat:@"/library/metadata/%@/children", season.ratingKey] done:^(NSDictionary *mc, NSError *err) {
         PXShowScreen *me = weak;
         if (!me || ![me->_loadedSeason isEqual:season.ratingKey]) return;
+        if (err) { [me showError:err]; return; }
         NSArray *eps = [PXItem itemsWithJSON:mc[@"Metadata"]];
         NSInteger keep = same ? me->_episodes.focusIndex : -1;
         me->_episodes.items = eps;
@@ -319,11 +339,16 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 
 // Every episode of the show in random order.
 - (void)shuffleShow {
+    if (_shuffling) return;   // second Select while the list is asked
+    _shuffling = YES;
     __weak PXShowScreen *weak = self;
     [self.server get:[NSString stringWithFormat:@"/library/metadata/%@/allLeaves", self.showKey] done:^(NSDictionary *mc, NSError *err) {
         PXShowScreen *me = weak;
+        if (!me) return;
+        me->_shuffling = NO;
         NSMutableArray *eps = [[PXItem itemsWithJSON:mc[@"Metadata"]] mutableCopy];
-        if (!me || !eps.count) return;
+        if (err) [me showError:err];
+        if (!eps.count || ![me isOnTop]) return;
         for (NSUInteger i = eps.count; i > 1; i--) [eps exchangeObjectAtIndex:i - 1 withObjectAtIndex:arc4random_uniform((uint32_t)i)];
         [me push:PXPlayerScreenNewQueue(eps)];
     }];

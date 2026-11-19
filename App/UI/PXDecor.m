@@ -208,6 +208,7 @@ static const CGFloat kD = 150, kGap = 44;
             }];
         }
     }
+    _focusIndex = MAX(0, MIN(_focusIndex, (NSInteger)_cells.count - 1));   // fewer people than before
     [self update:NO];
 }
 

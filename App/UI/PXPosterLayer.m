@@ -132,7 +132,12 @@ static const CGFloat kTitleLine = 30;
     text = text ?: @"";
     if ([[l valueForKey:@"pxText"] isEqual:text]) return;
     [l setValue:text forKey:@"pxText"];
-    if (!text.length) { l.contents = nil; return; }
+    if (!text.length) {
+        // Cancel a render still in flight for the previous text (PXDrawTextAsync token).
+        [l setValue:nil forKey:@"pxTextToken"];
+        l.contents = nil;
+        return;
+    }
     PXDrawTextAsync(l, text, font, PXColorText(), _imageSize.width - 4, lines, 0);
 }
 

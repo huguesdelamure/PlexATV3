@@ -33,7 +33,7 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
     NSInteger _tabIndex;
     BOOL _tabsFocused;
     NSInteger _shownTab;            // tab whose content is displayed
-    NSMutableDictionary *_children; // tab index -> embedded PXScreen (kept for state)
+    NSMutableDictionary *_children; // tab id -> embedded PXScreen (kept for state)
     BOOL _childFocused;
     CAGradientLayer *_tabsScrim;    // keeps the tab bar readable over tab content
     CATextLayer *_clock;
@@ -56,21 +56,24 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
     NSDictionary *_historyHub;       // "Regardés récemment" (watch history of the primary server)
     BOOL _hasPlaylists;              // video playlists on the tabs server
     BOOL _hasWatchlist;              // plex.tv watchlist not empty (main home)
+    id _serversObserver, _userObserver;
 }
 
 - (instancetype)init {
     if ((self = [super init])) {
         _fullItems = [NSMutableDictionary dictionary];
         __weak PXHomeScreen *weakSelf = self;
-        [[NSNotificationCenter defaultCenter] addObserverForName:PXSelectedServersDidChange object:nil queue:[NSOperationQueue mainQueue]
-                                                      usingBlock:^(NSNotification *n) { if (!weakSelf.server) [weakSelf reloadAll]; }];
-        // Another profile: its own servers and selection, everything reloads.
-        [[NSNotificationCenter defaultCenter] addObserverForName:PXHomeUserDidChange object:nil queue:[NSOperationQueue mainQueue]
-                                                      usingBlock:^(NSNotification *n) {
+        _serversObserver = [[NSNotificationCenter defaultCenter] addObserverForName:PXSelectedServersDidChange object:nil queue:[NSOperationQueue mainQueue]
+                                                                         usingBlock:^(NSNotification *n) { if (!weakSelf.server) [weakSelf reloadAll]; }];
+        // Another profile: its own servers and selection, everything reloads
+        // (tab contents too: same tabs, other profile's data).
+        _userObserver = [[NSNotificationCenter defaultCenter] addObserverForName:PXHomeUserDidChange object:nil queue:[NSOperationQueue mainQueue]
+                                                                      usingBlock:^(NSNotification *n) {
             PXHomeScreen *me = weakSelf;
             if (!me || me.server) return;
             me->_askedServers = NO;
             me->_tabsSignature = nil;
+            [me dropChildren];
             [me reloadAll];
         }];
         _ambient = [[PXAmbientLayer alloc] initWithFrame:self.layer.bounds style:PXAmbientHome];
@@ -170,7 +173,9 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 // The hero (big text, badges, backdrop) is rebuilt only once the focus
 // rests: rebuilding it on every move cost ~300 ms of main thread per step.
 - (void)showHero:(PXItem *)it {
-    if (!it || [it.uniqueKey isEqual:_heroItem.uniqueKey]) return;
+    if (!it) return;
+    // Back on the item already shown: a pending hero must not land after it.
+    if ([it.uniqueKey isEqual:_heroItem.uniqueKey]) { _pendingHero = nil; return; }
     if (!_heroItem) { [self applyHero:it]; return; }   // first display: immediate
     _pendingHero = it;
     __weak PXHomeScreen *weak = self;
@@ -254,47 +259,87 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     [self buildTabs:sections];
 }
 
-- (BOOL)showsServersTab { return !self.server && [PXPlex shared].servers.count > 1; }
-
-- (void)buildTabs:(NSArray *)sections {
-    for (NSDictionary *n in _tabs) [n[@"layer"] removeFromSuperlayer];
-    __weak PXHomeScreen *weak = self;
-    // Each tab builds its content once (kept while the home lives); Accueil
-    // is the home itself (no factory).
-    (void)weak;
-    NSMutableArray *defs = [NSMutableArray arrayWithObject:@{ @"title": self.server ? self.server.name : PXL(@"Accueil") }];
-    for (NSDictionary *s in sections)
-        [defs addObject:@{ @"title": s[@"title"] ?: @"?", @"make": ^PXScreen *{ return PXLibraryScreenNew(s, YES); } }];
-    if (_hasWatchlist && !self.server) {
-        [defs addObject:@{ @"title": PXL(@"Ma liste"), @"make": ^PXScreen *{
-            return PXItemListScreenNewEmbedded(PXL(@"Ma liste"), @"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1",
-                                               [PXPlex shared].onlineProvider);
-        } }];
-    }
-    if (_hasPlaylists) {
-        PXServer *sv = self.server ?: [PXPlex shared].primaryServer;
-        [defs addObject:@{ @"title": PXL(@"Listes de lecture"), @"make": ^PXScreen *{
-            return PXItemListScreenNewEmbedded(PXL(@"Listes de lecture"), @"/playlists?playlistType=video", sv);
-        } }];
-    }
-    if ([self showsServersTab]) [defs addObject:@{ @"title": PXL(@"Serveurs"), @"make": ^PXScreen *{ return PXServerListScreenNew(YES); } }];
-    if (!self.server) {
-        [defs addObject:@{ @"title": PXL(@"Découvrir"), @"make": ^PXScreen *{ return PXDiscoverScreenNew(); } }];
-        [defs addObject:@{ @"title": PXL(@"Rechercher"), @"make": ^PXScreen *{ return PXSearchScreenNew(YES); } }];
-        [defs addObject:@{ @"title": PXL(@"Réglages"), @"make": ^PXScreen *{ return PXSettingsScreenNew(YES); } }];
-    }
-    for (PXScreen *c in _children.allValues) { [c willDisappear]; [c didPop]; [c.layer removeFromSuperlayer]; }
-    _children = [NSMutableDictionary dictionary];
-    _shownTab = 0;
-    _tabIndex = 0;
-    if (_childFocused) { _childFocused = NO; _tabsFocused = YES; }
-    // Back on Accueil: undo what showTab: did for the previous tab.
+// Back on Accueil without animation: undo what showTab: did for another tab.
+- (void)restoreHomeLayers {
     PXNoAnim(^{
         self->_shelvesLayer.opacity = 1;
         self->_ambient.opacity = 1;
         self->_tabsScrim.opacity = 0;
         self->_hero.opacity = self->_shelfIndex == 0 ? 1 : 0;
     });
+}
+
+// Profile change: the tab contents belong to the previous profile.
+- (void)dropChildren {
+    for (PXScreen *c in _children.allValues) { [c willDisappear]; [c didPop]; PXNoAnim(^{ [c.layer removeFromSuperlayer]; }); }
+    _children = [NSMutableDictionary dictionary];
+    if (_shownTab != 0) {
+        _shownTab = 0;
+        [self restoreHomeLayers];
+    }
+    _tabIndex = 0;
+    if (_childFocused) { _childFocused = NO; _tabsFocused = YES; }
+    [self updateTabs];
+}
+
+- (PXScreen *)childAt:(NSInteger)index {
+    return index < (NSInteger)_tabs.count ? _children[_tabs[index][@"id"]] : nil;
+}
+
+- (BOOL)showsServersTab { return !self.server && [PXPlex shared].servers.count > 1; }
+
+- (void)buildTabs:(NSArray *)sections {
+    for (NSDictionary *n in _tabs) [n[@"layer"] removeFromSuperlayer];
+    NSString *shownId = _shownTab < (NSInteger)_tabs.count ? _tabs[_shownTab][@"id"] : nil;
+    NSString *focusId = _tabIndex < (NSInteger)_tabs.count ? _tabs[_tabIndex][@"id"] : nil;
+    // Each tab builds its content once (kept while the home lives, across
+    // tab rebuilds, by tab id); Accueil is the home itself (no factory).
+    NSMutableArray *defs = [NSMutableArray arrayWithObject:@{ @"id": @"home", @"title": self.server ? self.server.name : PXL(@"Accueil") }];
+    for (NSDictionary *s in sections) {
+        NSString *sid = [NSString stringWithFormat:@"section:%@/%@", s[@"_server"] ?: @"", s[@"key"] ?: s[@"title"] ?: @"?"];
+        [defs addObject:@{ @"id": sid, @"title": s[@"title"] ?: @"?", @"make": ^PXScreen *{ return PXLibraryScreenNew(s, YES); } }];
+    }
+    if (_hasWatchlist && !self.server) {
+        [defs addObject:@{ @"id": @"watchlist", @"title": PXL(@"Ma liste"), @"make": ^PXScreen *{
+            return PXItemListScreenNewEmbedded(PXL(@"Ma liste"), @"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1",
+                                               [PXPlex shared].onlineProvider);
+        } }];
+    }
+    if (_hasPlaylists) {
+        PXServer *sv = self.server ?: [PXPlex shared].primaryServer;
+        [defs addObject:@{ @"id": [@"playlists:" stringByAppendingString:sv.identifier ?: @""], @"title": PXL(@"Listes de lecture"), @"make": ^PXScreen *{
+            return PXItemListScreenNewEmbedded(PXL(@"Listes de lecture"), @"/playlists?playlistType=video", sv);
+        } }];
+    }
+    if ([self showsServersTab]) [defs addObject:@{ @"id": @"servers", @"title": PXL(@"Serveurs"), @"make": ^PXScreen *{ return PXServerListScreenNew(YES); } }];
+    if (!self.server) {
+        [defs addObject:@{ @"id": @"discover", @"title": PXL(@"Découvrir"), @"make": ^PXScreen *{ return PXDiscoverScreenNew(); } }];
+        [defs addObject:@{ @"id": @"search", @"title": PXL(@"Rechercher"), @"make": ^PXScreen *{ return PXSearchScreenNew(YES); } }];
+        [defs addObject:@{ @"id": @"settings", @"title": PXL(@"Réglages"), @"make": ^PXScreen *{ return PXSettingsScreenNew(YES); } }];
+    }
+    // Late answers (watchlist, playlists, server list) add or remove tabs:
+    // keep the contents still listed and the tab the user is on.
+    NSArray *ids = [defs valueForKey:@"id"];
+    for (NSString *cid in _children.allKeys) {
+        if ([ids containsObject:cid]) continue;
+        PXScreen *c = _children[cid];
+        [c willDisappear];
+        [c didPop];
+        PXNoAnim(^{ [c.layer removeFromSuperlayer]; });
+        [_children removeObjectForKey:cid];
+    }
+    if (!_children) _children = [NSMutableDictionary dictionary];
+    NSUInteger shown = shownId ? [ids indexOfObject:shownId] : NSNotFound;
+    NSUInteger focus = focusId ? [ids indexOfObject:focusId] : NSNotFound;
+    if (shown == NSNotFound) {
+        // The tab shown is gone: back on Accueil.
+        shown = 0;
+        focus = 0;
+        if (_childFocused) { _childFocused = NO; _tabsFocused = YES; }
+        [self restoreHomeLayers];
+    }
+    _shownTab = shown;
+    _tabIndex = focus == NSNotFound ? shown : focus;
     NSMutableArray *built = [NSMutableArray array];
     CGFloat x = 84;
     // Many libraries / tabs: tighter pills, then a smaller font, so the bar
@@ -353,7 +398,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 // Shows the content of a tab (called when the focus rests on it).
 - (void)showTab:(NSInteger)index {
     if (index == _shownTab || index >= (NSInteger)_tabs.count) return;
-    PXScreen *old = _children[@(_shownTab)];
+    PXScreen *old = [self childAt:_shownTab];
     if (old) {
         old.hasFocus = NO;
         [old willDisappear];
@@ -368,11 +413,11 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
         self->_tabsScrim.opacity = home ? 0 : 1;
     });
     if (!home) {
-        PXScreen *child = _children[@(index)];
+        PXScreen *child = [self childAt:index];
         if (!child) {
             PXScreen *(^make)(void) = _tabs[index][@"make"];
             child = make ? make() : nil;
-            if (child) _children[@(index)] = child;
+            if (child) _children[_tabs[index][@"id"]] = child;
         }
         if (child) {
             child.host = self.host;           // pushes from the tab go on our stack
@@ -404,7 +449,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 }
 
 - (void)focusChild:(BOOL)focus {
-    PXScreen *child = _children[@(_shownTab)];
+    PXScreen *child = [self childAt:_shownTab];
     _childFocused = focus && child;
     _tabsFocused = !_childFocused;
     child.hasFocus = _childFocused;
@@ -415,7 +460,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 
 - (void)willDisappear {
     [super willDisappear];
-    [_children[@(_shownTab)] willDisappear];
+    [[self childAt:_shownTab] willDisappear];
 }
 
 // beigelist pushes its category list before our root controller: drop it,
@@ -435,7 +480,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 - (void)didAppear {
     [super didAppear];
     [self removeLoaderList];
-    if (_shownTab != 0) { [_children[@(_shownTab)] didAppear]; return; }
+    if (_shownTab != 0) { [[self childAt:_shownTab] didAppear]; return; }
     PXSetText(_clock, PXWallClock([NSDate date]));
     PXPlex *plex = [PXPlex shared];
     if (!plex.isLinked) {
@@ -489,6 +534,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 // Server selection changed: rebuild rows from scratch.
 - (void)reloadAll {
     _loaded = NO;
+    _historyHub = nil;
     for (PXShelfLayer *sh in _shelves) [sh removeFromSuperlayer];
     [_shelves removeAllObjects];
     [self reload];
@@ -507,8 +553,8 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     __weak PXHomeScreen *weak = self;
     if (!tabsServer) {
         // Linked but no server known yet (plex.tv not answered): ask plex.tv.
-        if (!retry) { _loading = NO; PXSetText(_status, PXL(@"Aucun serveur Plex sur ce compte.")); return; }
-        PXSetText(_status, PXL(@"Recherche des serveurs…"));
+        if (!retry) { _loading = NO; if (!_loaded) PXSetText(_status, PXL(@"Aucun serveur Plex sur ce compte.")); return; }
+        if (!_loaded) PXSetText(_status, PXL(@"Recherche des serveurs…"));
         [plex reconnect:^(id conn, NSError *e) { [weak loadRetrying:NO]; }];
         return;
     }
@@ -516,15 +562,17 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     [tabsServer get:@"/library/sections" done:^(NSDictionary *mc, NSError *err) {
         PXHomeScreen *me = weak;
         if (!me) return;
+        // Already loaded: the shelves stay, no status over them.
         if (err && retry) {
-            PXSetText(me->_status, PXLF(@"Connexion à %@…", tabsServer.name));
+            if (!me->_loaded) PXSetText(me->_status, PXLF(@"Connexion à %@…", tabsServer.name));
             void (^again)(id, NSError *) = ^(id conn, NSError *e) { [weak loadRetrying:NO]; };
             if (me.server) [tabsServer reconnect:again]; else [plex reconnect:again];
             return;
         }
         if (err) {
             me->_loading = NO;
-            PXSetText(me->_status, PXLF(@"%@ injoignable : %@", tabsServer.name, err.localizedDescription));
+            PXLog(@"home: %@ unreachable: %@", tabsServer.name, err.localizedDescription);
+            if (!me->_loaded) PXSetText(me->_status, PXLF(@"%@ injoignable : %@", tabsServer.name, err.localizedDescription));
             return;
         }
         [me buildTabsIfNeeded:[me videoSections:mc]];
@@ -576,12 +624,18 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
         }
         NSMutableArray *ordered = [NSMutableArray array];
         for (PXServer *sv in servers) if (results[sv.identifier]) [ordered addObject:@{ @"server": sv, @"hubs": results[sv.identifier] }];
+        // No server answered (timeout, network down): a refresh keeps what is shown.
+        if (!ordered.count && me->_loaded) { PXLog(@"home: refresh failed, keeping the shelves"); return; }
         NSArray *hubs = [me mergeHubs:ordered];
         if (me->_historyHub) hubs = [hubs arrayByAddingObject:me->_historyHub];
         [me showHubs:hubs error:nil];
     };
-    if (!self.server) [self loadHistory];
     if (!pending) { finish(); return; }
+    // The history row is part of this load (shown with the hubs, not one reload later).
+    if (!self.server) {
+        pending++;
+        [self loadHistory:^{ if (--pending == 0) finish(); }];
+    }
     for (PXServer *sv in servers) {
         [sv get:@"/library/sections" done:^(NSDictionary *mc, NSError *err) {
             PXHomeScreen *me = weak;
@@ -696,6 +750,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     }
     if (!_shelves.count) _tabsFocused = YES;
     _heroItem = nil;
+    _pendingHero = nil;
     [self updateFocus:NO];
 }
 
@@ -724,7 +779,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 - (BOOL)handleKey:(PXKey)key {
     if (_overlay) return [_overlay handleKey:key];
     if (_childFocused) {
-        PXScreen *child = _children[@(_shownTab)];
+        PXScreen *child = [self childAt:_shownTab];
         if ([child handleKey:key]) return YES;
         // The child is at its top edge (Up) or has nothing to close (Menu).
         if (key == PXKeyUp || key == PXKeyMenu) { [self focusChild:NO]; return YES; }
@@ -786,15 +841,16 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
 
 // Watch history of the primary server, own views only (account 1 = the server
 // owner; other Plex Home profiles have no stable local id here, so no row).
-- (void)loadHistory {
+// `done` is called once on every path; a failed request keeps the last row.
+- (void)loadHistory:(void (^)(void))done {
     PXPlex *plex = [PXPlex shared];
     PXServer *sv = plex.primaryServer;
     NSDictionary *user = plex.currentHomeUser;
-    if (!sv.owned || (user && ![user[@"admin"] boolValue])) { _historyHub = nil; return; }
+    if (!sv.owned || (user && ![user[@"admin"] boolValue])) { _historyHub = nil; done(); return; }
     __weak PXHomeScreen *weak = self;
     [sv get:@"/status/sessions/history/all?sort=viewedAt:desc&accountID=1&X-Plex-Container-Size=40" done:^(NSDictionary *mc, NSError *err) {
         PXHomeScreen *me = weak;
-        if (!me || ![mc[@"Metadata"] isKindOfClass:[NSArray class]]) return;
+        if (!me || ![mc[@"Metadata"] isKindOfClass:[NSArray class]]) { done(); return; }
         // One entry per title (an episode watched twice, a film rewatched).
         NSMutableArray *items = [NSMutableArray array];
         NSMutableSet *seen = [NSMutableSet set];
@@ -806,6 +862,7 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
             if (items.count >= 20) break;
         }
         me->_historyHub = items.count ? @{ @"hubIdentifier": @"home.history", @"title": PXL(@"Regardés récemment"), @"type": @"mixed", @"Metadata": items } : nil;
+        done();
     }];
 }
 
@@ -829,8 +886,17 @@ static CALayer *badgePill(NSString *text, CGFloat x) {
     for (PXScreen *c in _children.allValues) [c didPop];
     if (_clockTimer) dispatch_source_cancel(_clockTimer);
     _clockTimer = nil;
+    [self removeObservers];
     [super didPop];
 }
+
+- (void)removeObservers {
+    if (_serversObserver) [[NSNotificationCenter defaultCenter] removeObserver:_serversObserver];
+    if (_userObserver) [[NSNotificationCenter defaultCenter] removeObserver:_userObserver];
+    _serversObserver = _userObserver = nil;
+}
+
+- (void)dealloc { [self removeObservers]; }
 
 @end
 

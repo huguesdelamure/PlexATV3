@@ -32,13 +32,23 @@ static const CGFloat kAvatar = 200, kAvatarGap = 80, kAvatarY = 400;
     NSMutableArray *_dots;
     CATextLayer *_pinError;
     NSInteger _key;
-    BOOL _busy;
+    BOOL _busy, _gone;
+    CALayer *_row;                 // avatars, scrolled when they exceed the screen
+    CATextLayer *_status;          // switch errors outside the PIN pad
 }
 
 - (void)setup {
     [self.layer addSublayer:[[PXAmbientLayer alloc] initWithFrame:self.layer.bounds style:PXAmbientBlurOnly]];
     _title = PXAsyncLabel(PXL(@"Qui regarde ?"), PXFontHeavy(64), PXColorText(), CGRectMake(0, 220, 1920, 80), 1, YES);
     [self.layer addSublayer:_title];
+    _row = [CALayer layer];
+    _row.anchorPoint = CGPointZero;
+    _row.bounds = self.layer.bounds;
+    [self.layer addSublayer:_row];
+    _status = PXText(PXFont(28), PXColorAccent());
+    _status.alignmentMode = kCAAlignmentCenter;
+    _status.frame = CGRectMake(0, 960, 1920, 40);
+    [self.layer addSublayer:_status];
     _cells = [NSMutableArray array];
     _users = [PXPlex shared].homeUsers;
     NSString *current = [PXPlex shared].currentHomeUser[@"uuid"];
@@ -96,13 +106,22 @@ static NSString *initials(NSString *name) {
         NSString *name = u[@"title"] ?: @"";
         if ([u[@"protected"] boolValue]) name = [name stringByAppendingString:@" 🔒"];
         [cell addSublayer:PXAsyncLabel(name, PXFontSemi(30), PXColorText(), CGRectMake(-40, kAvatar + 24, kAvatar + 80, 40), 1, YES)];
-        [self.layer addSublayer:cell];
+        [_row addSublayer:cell];
         [_cells addObject:cell];
     }
     [self updateFocus];
 }
 
 - (void)updateFocus {
+    // More profiles than the screen holds: keep the focused one inside it.
+    CGFloat dx = _row.position.x;
+    if (_index < (NSInteger)_cells.count) {
+        CGRect f = [_cells[_index] frame];
+        if (CGRectGetMinX(f) + dx < 160) dx = 160 - CGRectGetMinX(f);
+        else if (CGRectGetMaxX(f) + dx > 1920 - 160) dx = 1920 - 160 - CGRectGetMaxX(f);
+    }
+    if (CGRectGetMinX([_cells.firstObject frame]) >= 0) dx = 0;   // all fit: centered row
+    PXAnim(0.25, ^{ self->_row.position = CGPointMake(dx, 0); });
     PXAnim(0.2, ^{
         for (NSInteger i = 0; i < (NSInteger)self->_cells.count; i++) {
             CALayer *cell = self->_cells[i];
@@ -129,6 +148,7 @@ static NSString *initials(NSString *name) {
 
 - (void)switchTo:(NSDictionary *)u pin:(NSString *)pin {
     _busy = YES;
+    PXSetText(_status, @"");
     _spinner = PXSpinner(60);
     _spinner.position = CGPointMake(960, 900);
     [self.layer addSublayer:_spinner];
@@ -140,7 +160,12 @@ static NSString *initials(NSString *name) {
         [me->_spinner removeFromSuperlayer];
         if (!user) {
             PXLog(@"profiles: switch failed: %@", err.localizedDescription);
-            if (me->_pinUser) [me pinFailed:err.localizedDescription];
+            // PXPlex reports a refusal as code 401, PIN sent or not.
+            BOOL refused = [err.domain isEqual:@"PXPlex"] && err.code == 401;
+            NSString *msg = refused && pin.length ? PXL(@"Code PIN incorrect")
+                          : (refused ? PXL(@"erreur inconnue") : (err.localizedDescription ?: PXL(@"erreur inconnue")));
+            if (me->_pinUser) [me pinFailed:msg];
+            else PXSetText(me->_status, msg);
             return;
         }
         [me finish];
@@ -148,10 +173,14 @@ static NSString *initials(NSString *name) {
 }
 
 - (void)finish {
+    // Left meanwhile (Menu, app closed): the caller's screen is not under us.
+    if (_gone || ![self isOnTop]) return;
     void (^done)(void) = self.completion;
     [self pop];
     if (done) done();
 }
+
+- (void)didPop { _gone = YES; [super didPop]; }
 
 #pragma mark - PIN pad
 
@@ -263,8 +292,8 @@ static NSString *initials(NSString *name) {
         return YES;
     }
     switch (key) {
-        case PXKeyLeft: if (_index > 0) { _index--; [self updateFocus]; } return YES;
-        case PXKeyRight: if (_index + 1 < (NSInteger)_users.count) { _index++; [self updateFocus]; } return YES;
+        case PXKeyLeft: if (_index > 0) { _index--; PXSetText(_status, @""); [self updateFocus]; } return YES;
+        case PXKeyRight: if (_index + 1 < (NSInteger)_users.count) { _index++; PXSetText(_status, @""); [self updateFocus]; } return YES;
         case PXKeySelect: [self choose]; return YES;
         case PXKeyMenu: if (self.atLaunch) { [self leaveApp]; return YES; } return NO;
         default: return YES;

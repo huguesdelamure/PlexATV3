@@ -43,6 +43,8 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     BOOL _similarLoaded;
     NSArray *_locations;            // same title on other servers (PXItem)
     NSString *_locationsFor;        // guid already searched
+    NSInteger _itemGeneration;      // only the latest metadata request is applied
+    BOOL _startingPlayback;         // cinema trailers asked, player not pushed yet
 }
 
 - (void)setup {
@@ -294,9 +296,10 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
 
 - (void)reloadItem {
     __weak PXDetailScreen *weak = self;
+    NSInteger generation = ++_itemGeneration;
     [self.item.server metadata:self.item.ratingKey done:^(NSDictionary *m, NSError *err) {
         PXDetailScreen *me = weak;
-        if (!me || !m) return;
+        if (!me || !m || generation != me->_itemGeneration) return;
         me.item = [PXItem itemWithJSON:m];
         [me->_ambient showItem:me.item];
         [me render];
@@ -387,10 +390,14 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
     // A movie from the start, Réglages > Bandes-annonces: the server's cinema
     // trailers first, then the movie.
     if (!resume && trailers > 0 && it.type == PXItemMovie) {
+        if (_startingPlayback) return;   // second Select while the trailers are asked
+        _startingPlayback = YES;
         __weak PXDetailScreen *weak = self;
         [it.server trailersBefore:it.raw count:trailers done:^(NSArray *items, NSError *err) {
             PXDetailScreen *me = weak;
             if (!me) return;
+            me->_startingPlayback = NO;
+            if (![me isOnTop]) return;   // the user went elsewhere meanwhile
             if (items.count > 1) [me push:PXPlayerScreenNewQueue(items)];
             else [me push:PXPlayerScreenNew(it, 0)];
         }];
