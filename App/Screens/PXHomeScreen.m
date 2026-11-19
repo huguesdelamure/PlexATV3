@@ -648,12 +648,13 @@ static const CGFloat kTabsY = 44, kHeroY = 150, kShelvesHeroY = 560, kShelvesTop
 }
 
 // What a refresh can change on a hub item: watch state and progress
-// (leaf counts: the unwatched badge of shows and seasons). The server
-// address too: cells cache artwork URLs on the item.
+// (leaf counts: the unwatched badge of shows and seasons), and edits made on
+// the server (updatedAt, title, artwork). The server address too: cells cache
+// artwork URLs on the item.
 static NSString *itemSignature(PXItem *it) {
     NSDictionary *r = it.raw;
-    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@|%@|%@", it.uniqueKey, r[@"viewOffset"], r[@"viewCount"], r[@"lastViewedAt"],
-            r[@"viewedLeafCount"], r[@"leafCount"], it.server.uri];
+    return [NSString stringWithFormat:@"%@|%@|%@|%@|%@|%@|%@|%@|%@|%@", it.uniqueKey, r[@"viewOffset"], r[@"viewCount"], r[@"lastViewedAt"],
+            r[@"viewedLeafCount"], r[@"leafCount"], r[@"updatedAt"], r[@"title"], r[@"thumb"], it.server.uri];
 }
 
 - (void)showHubs:(NSArray *)hubs {
