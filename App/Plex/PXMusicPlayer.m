@@ -19,6 +19,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     NSInteger _serial;           // ignores answers for a track already skipped
     double _lastReport;
     NSInteger _failures;         // consecutive unplayable tracks
+    BOOL _reported;              // the current track was reported, "stopped" still owed
 }
 
 + (instancetype)shared {
@@ -66,6 +67,8 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 
 - (void)playTracks:(NSArray *)tracks startAt:(NSInteger)index shuffle:(BOOL)shuffle {
     if (!tracks.count) return;
+    [self report:@"stopped"];   // the outgoing track, before the queue changes
+    _failures = 0;
     _original = [tracks copy];
     _queue = [tracks mutableCopy];
     _index = MAX(0, MIN(index, (NSInteger)tracks.count - 1));
@@ -100,6 +103,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 
 - (void)next {
     if (!_queue.count) return;
+    [self report:@"stopped"];
     if (_index + 1 < (NSInteger)_queue.count) _index++;
     else if (_repeat == PXRepeatAll) _index = 0;
     else { [self stop]; return; }
@@ -108,7 +112,8 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 
 - (void)previous {
     if (!_queue.count) return;
-    if (self.elapsed > 3 || _index == 0) { [_player seekToTime:kCMTimeZero]; return; }
+    if (self.elapsed > 3 || _index == 0) { [_player seekToTime:kCMTimeZero]; _lastReport = 0; return; }
+    [self report:@"stopped"];
     _index--;
     [self startCurrent];
 }
@@ -116,7 +121,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 - (void)itemEnded:(NSNotification *)n {
     if (n.object != _player.currentItem) return;
     [self report:@"stopped"];
-    if (_repeat == PXRepeatOne) { [_player seekToTime:kCMTimeZero]; [_player play]; return; }
+    if (_repeat == PXRepeatOne) { [_player seekToTime:kCMTimeZero]; [_player play]; _lastReport = 0; return; }
     [self next];
 }
 
@@ -212,9 +217,13 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     [self changed];
 }
 
+// "stopped" once per track, and only for a track that was reported playing.
 - (void)report:(NSString *)state {
     PXItem *t = self.current;
     if (!t.ratingKey) return;
+    BOOL stopped = [state isEqualToString:@"stopped"];
+    if (stopped && !_reported) return;
+    _reported = !stopped;
     [t.server reportTimeline:t.raw state:state timeMs:(long long)(self.elapsed * 1000)];
 }
 

@@ -276,7 +276,11 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
         } else {
             PXVideoPlayerControl(cmd, [p[@"offset"] doubleValue] / 1000);
         }
-        if ([cmd isEqual:@"setParameters"] && p[@"volume"]) mp.volume = [p[@"volume"] floatValue] / 100;   // shared with the video player
+        if ([cmd isEqual:@"setParameters"] && p[@"volume"]) {
+            float v = [p[@"volume"] floatValue] / 100;   // one volume setting for both players
+            if (PXVideoPlayerState()) PXVideoPlayerControl(@"volume", v);
+            else mp.volume = v;
+        }
         PXLog(@"companion: %@ from %@", cmd, host);
         return ok();
     }
@@ -288,12 +292,14 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
     NSString *rk = [[key componentsSeparatedByString:@"/"] lastObject];
     if (!rk.length) return;
     PXServer *server = [[PXPlex shared] serverWithID:p[@"machineIdentifier"]] ?: [PXPlex shared].primaryServer;
-    double offset = [p[@"offset"] doubleValue] / 1000;
+    // An explicit offset is kept (0 = from the start); none = resume point.
+    double offset = p[@"offset"] ? [p[@"offset"] doubleValue] / 1000 : -1;
     PXLog(@"companion: playMedia %@ on %@ at %.0f s", rk, server.name, offset);
     id stack = [[PXCls("BRApplicationStackManager") singleton] stack];
     if ([p[@"type"] isEqual:@"music"]) {
         [server metadata:rk done:^(NSDictionary *m, NSError *err) {
             if (!m) return;
+            PXVideoPlayerControl(@"stop", 0);
             [[PXMusicPlayer shared] playTracks:@[ [PXItem itemWithJSON:m] ] startAt:0 shuffle:NO];
             if (!PXNowPlayingIsShown()) [stack pushController:PXHostControllerForScreen(PXNowPlayingScreenNew())];
         }];
@@ -301,7 +307,7 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
     }
     PXVideoPlayerControl(@"stop", 0);
     PXItem *it = [PXItem itemWithJSON:@{ @"ratingKey": rk, @"type": @"movie", @"_server": server.identifier ?: @"" }];
-    [stack pushController:PXHostControllerForScreen(PXPlayerScreenNew(it, offset > 0 ? offset : -1))];
+    [stack pushController:PXHostControllerForScreen(PXPlayerScreenNew(it, offset))];
 }
 
 #pragma mark - Timelines
@@ -334,8 +340,10 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
     if (idle && [xml isEqual:_lastState]) return;
     _lastState = xml;
     for (PXCompanionSubscriber *s in _subscribers.allValues) {
-        NSString *u = [NSString stringWithFormat:@"%@://%@:%d/:/timeline", s.protocol, s.host, s.port];
-        NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:u]];
+        if (![s.protocol isEqual:@"http"] && ![s.protocol isEqual:@"https"]) continue;
+        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@://%@:%d/:/timeline", s.protocol, s.host, s.port]];
+        if (!url) continue;
+        NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:url];
         r.HTTPMethod = @"POST";
         r.timeoutInterval = 3;
         r.HTTPBody = [xml dataUsingEncoding:NSUTF8StringEncoding];
@@ -347,8 +355,11 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
         __weak PXCompanion *weak = self;
         [[[NSURLSession sharedSession] dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *resp, NSError *e) {
             if (!e) return;
-            // An app that went away: drop it.
-            dispatch_async(dispatch_get_main_queue(), ^{ PXCompanion *me = weak; if (me) [me->_subscribers removeObjectForKey:cid]; });
+            // An app that went away: drop it, unless it subscribed again since.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                PXCompanion *me = weak;
+                if (me && me->_subscribers[cid] == s) [me->_subscribers removeObjectForKey:cid];
+            });
         }] resume];
     }
 }

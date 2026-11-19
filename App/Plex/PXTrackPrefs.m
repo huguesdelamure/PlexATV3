@@ -34,8 +34,8 @@ static NSString *wantedAudioLang(void) {
     return pref;
 }
 
-// "none" | "forced" | "always"
-static NSString *wantedSubMode(NSString **lang) {
+// "none" | "forced" | "always", for the audio language that will be played.
+static NSString *wantedSubMode(NSString **lang, NSString *audioLang) {
     NSDictionary *profile = [PXPlex shared].accountProfile;
     *lang = profile[@"defaultSubtitleLanguage"] ?: wantedAudioLang() ?: @"fr";
     NSString *pref = PXSettingGet(@"subMode") ?: @"account";
@@ -44,6 +44,8 @@ static NSString *wantedSubMode(NSString **lang) {
     // defaultSubtitleForced 2 = prefer forced subtitles.
     NSInteger autoSel = [profile[@"autoSelectSubtitle"] integerValue];
     if (autoSel == 2) return @"always";
+    // Foreign audio: not in the subtitle language (untagged counts as foreign).
+    if (autoSel == 1 && ![audioLang isEqualToString:*lang]) return @"always";
     if ([profile[@"defaultSubtitleForced"] integerValue] >= 1) return @"forced";
     return @"none";
 }
@@ -69,7 +71,7 @@ void PXApplyTrackPreferences(PXItem *item, void (^done)(BOOL changed)) {
     }
 
     NSString *subLang = nil;
-    NSString *mode = wantedSubMode(&subLang);
+    NSString *mode = wantedSubMode(&subLang, audio.languageTag);
     PXStream *current = item.selectedSubtitle, *wantSub = nil;
     if ([mode isEqual:@"forced"]) {
         // Forced subtitles in the language being listened to.

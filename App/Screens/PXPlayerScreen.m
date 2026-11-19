@@ -65,6 +65,7 @@ static const CGSize kPreview = { 384, 216 };
     NSDate *_volumeShownAt;
     NSDate *_osdShownAt;
     BOOL _osdVisible;
+    long _barSec, _barRemain, _barMinute, _barEndMinute;   // texts shown on the bar (recomputed on change only)
 
     // Scrubbing
     BOOL _scrubbing;
@@ -86,6 +87,10 @@ static const CGSize kPreview = { 384, 216 };
     // client since, so this position is no longer reported and play resyncs.
     NSDate *_pausedAt, *_lastTickAt;
     BOOL _stalePos, _resyncing;
+    // New session on its way (track change, resync, next title): the old
+    // stream stays paused and unreported until startWithPlayback.
+    BOOL _restarting;
+    NSInteger _startSerial;         // ignores playback answers of a superseded start
 
     // Next episode
     PXItem *_next;
@@ -254,6 +259,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     [_volumeHUD addSublayer:_volumeText];
     [self.layer addSublayer:_volumeHUD];
 
+    _barSec = -1;
     [self renderTitles];
     [self showOSD:YES];
     PXSetText(_center, @"");
@@ -323,10 +329,16 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 - (void)startAt:(double)offset {
     [self stopSession];
     _lastKnownPos = offset;
+    NSInteger serial = ++_startSerial;
+    PXServer *server = self.item.server;
     __weak PXPlayerScreen *weak = self;
     [[PXPlex shared] preparePlayback:self.item.raw offset:offset done:^(NSDictionary *pb, NSError *err) {
         PXPlayerScreen *me = weak;
-        if (!me || me->_gone) return;
+        // Screen left or a later start superseded this one: drop its session.
+        if (!me || me->_gone || serial != me->_startSerial) {
+            if (pb[@"session"]) [server stopTranscode:pb[@"session"]];
+            return;
+        }
         if (!pb) { [me fail:err.localizedDescription ?: PXL(@"Le serveur refuse la lecture")]; return; }
         [me startWithPlayback:pb offset:offset];
     }];
@@ -337,6 +349,9 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     _directPlay = [pb[@"directPlay"] boolValue];
     _failed = _ended = NO;
     _readyOnce = NO;
+    _restarting = _resyncing = _stalePos = NO;   // a fresh session, a fresh position
+    _pausedAt = nil;
+    _userPausedFlag = NO;                        // it plays below
     _pendingSeek = -1;
     _errorsLogged = 0;
     _lastKnownPos = offset;
@@ -373,10 +388,24 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     _session = nil;
 }
 
+// Hold the current stream still until a new session replaces it: no ready
+// detection, stall watchdog nor report on the old item meanwhile.
+- (void)beginRestartAt:(double)t {
+    _restarting = YES;
+    _readyOnce = NO;
+    _lastKnownPos = t;
+    [_player pause];
+}
+
 - (double)position {
     double p = CMTimeGetSeconds(_player.currentTime);
-    if (isnan(p) || (!_readyOnce && p < 0.5)) return _lastKnownPos;
+    if (_restarting || isnan(p) || (!_readyOnce && p < 0.5)) return _lastKnownPos;
     return p;
+}
+
+- (NSString *)playState {
+    if (_player.rate > 0) return @"playing";
+    return _userPausedFlag || _ended ? @"paused" : @"buffering";
 }
 
 - (double)duration {
@@ -387,12 +416,15 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
 - (void)report:(NSString *)state {
     if (!self.item.ratingKey || !_readyOnce || _stalePos) return;
+    // Ended or left: only the final "stopped" (the next title may be loading).
+    if ((_ended || _gone) && ![state isEqualToString:@"stopped"]) return;
     [[PXPlex shared] reportTimeline:self.item.raw state:state timeMs:(long long)([self position] * 1000)];
     _lastReport = [NSDate date];
 }
 
 - (void)fail:(NSString *)message {
     _failed = YES;
+    _resyncing = NO;
     PXLog(@"player: FAILED %@", message);
     PXSetText(_center, PXLF(@"Lecture impossible\n%@", message));
     PXNoAnim(^{ self->_spinner.hidden = YES; });
@@ -446,8 +478,9 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
         [self fail:(pi.error ?: _player.error).localizedDescription ?: PXL(@"erreur inconnue")];
         return;
     }
-    if (pi.status == AVPlayerItemStatusReadyToPlay && !_readyOnce) {
+    if (pi.status == AVPlayerItemStatusReadyToPlay && !_readyOnce && !_restarting) {
         _readyOnce = YES;
+        PXSetText(_center, @"");   // "Changement de piste…"
         PXAnim(0.4, ^{ self->_backdrop.opacity = 0; });
         // Scrub thumbnails: fetched once playback runs (does not delay startup).
         if ([self.item.part[@"indexes"] isEqual:@"sd"]) _bif = [PXBif bifForPartID:[self.item.part[@"id"] description] server:self.item.server];
@@ -485,11 +518,10 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     if (!_failed) {
         BOOL buffering = !_readyOnce || (pi && !pi.playbackLikelyToKeepUp && !playing && !_userPausedFlag);
         if (buffering != !_spinner.hidden) PXNoAnim(^{ self->_spinner.hidden = !buffering; });
-        if ([_center.string isEqual:PXL(@"Chargement…")]) PXSetText(_center, @"");
     }
 
-    // Timeline: every 10 s, immediately on play/pause change.
-    NSString *state = playing ? @"playing" : (_readyOnce ? @"paused" : @"buffering");
+    // Timeline: every 10 s, immediately on a state change.
+    NSString *state = [self playState];
     if (_readyOnce && (![state isEqualToString:_lastState] || [_lastReport timeIntervalSinceNow] < -10)) {
         _lastState = state;
         [self report:state];
@@ -502,7 +534,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
     // Transcoded streams may stall instead of ending: treat the last second as the end.
     double d = [self duration];
-    if (_readyOnce && d > 0 && !_ended && [self position] > d - 1.0 && !playing) [self didReachEnd];
+    if (_readyOnce && d > 0 && !_ended && [self position] > d - 1.0 && !playing && !_userPausedFlag) [self didReachEnd];
 }
 
 - (void)updateBar {
@@ -514,6 +546,14 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
         if (CMTimeGetSeconds(r.start) <= pos + 1 && end > buffered) buffered = end;
     }
     CGImageRef preview = _scrubbing ? [_bif imageAt:p] : NULL;
+    // Texts: formatted only when the second shown or the minute changes.
+    NSDate *now = [NSDate date];
+    long sec = (long)p, remain = d > 0 ? (long)MAX(0, d - p) : -1;
+    long minute = (long)floor(now.timeIntervalSince1970 / 60);
+    long endMinute = d > 0 ? (long)floor((now.timeIntervalSince1970 + MAX(0, d - p)) / 60) : -1;
+    BOOL timesChanged = sec != _barSec || remain != _barRemain;
+    BOOL clockChanged = minute != _barMinute, endChanged = endMinute != _barEndMinute;
+    _barSec = sec; _barRemain = remain; _barMinute = minute; _barEndMinute = endMinute;
     PXNoAnim(^{
         CGFloat h = self->_scrubbing ? 12 : 8;
         self->_barBack.frame = CGRectMake(kBarX, kBarY + (8 - h) / 2, kBarW, h);
@@ -523,10 +563,13 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
         self->_barPlayed.bounds = CGRectMake(0, 0, kBarW * fp, h);
         self->_barBuffered.bounds = CGRectMake(0, 0, kBarW * MAX(fb, fp), h);
         self->_barPlayed.cornerRadius = self->_barBuffered.cornerRadius = h / 2;
-        PXSetText(self->_elapsed, PXClock(p));
-        PXSetText(self->_remaining, d > 0 ? [@"-" stringByAppendingString:PXClock(MAX(0, d - p))] : @"");
-        PXSetText(self->_endsAt, d > 0 ? [PXL(@"Fin à ") stringByAppendingString:PXWallClock([NSDate dateWithTimeIntervalSinceNow:MAX(0, d - p)])] : @"");
-        PXSetText(self->_clock, PXWallClock([NSDate date]));
+        if (timesChanged) {
+            PXSetText(self->_elapsed, PXClock(p));
+            PXSetText(self->_remaining, d > 0 ? [@"-" stringByAppendingString:PXClock(MAX(0, d - p))] : @"");
+        }
+        if (endChanged)
+            PXSetText(self->_endsAt, d > 0 ? [PXL(@"Fin à ") stringByAppendingString:PXWallClock([now dateByAddingTimeInterval:MAX(0, d - p)])] : @"");
+        if (clockChanged) PXSetText(self->_clock, PXWallClock(now));
         CGFloat x = kBarX + kBarW * fp;
         self->_knob.hidden = !self->_scrubbing && self->_player.rate > 0;
         float pauseAlpha = self->_userPausedFlag && !self->_scrubbing && self->_readyOnce ? 1 : 0;
@@ -544,7 +587,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
             CGFloat bw = self->_bubble.bounds.size.width, bh = self->_bubble.bounds.size.height;
             self->_bubble.position = CGPointMake(MIN(MAX(x, kBarX + bw / 2), kBarX + kBarW - bw / 2), kBarY - 34 - bh / 2);
             PXSetText(self->_scrubTime, PXClock(p));
-            self->_previewImage.contents = (__bridge id)preview;
+            if (self->_previewImage.contents != (__bridge id)preview) self->_previewImage.contents = (__bridge id)preview;
             // Without thumbnails the bubble shrinks to the time only.
             BOOL hasPreview = preview != NULL;
             self->_previewImage.hidden = !hasPreview;
@@ -627,6 +670,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
 - (void)togglePause {
     if (_scrubbing) { [self commitScrub]; return; }
+    if (_restarting) { [self showOSD:YES]; return; }   // the old stream must stay still
     if (_player.rate > 0) { [_player pause]; _userPausedFlag = YES; }
     else if (_stalePos) [self resumeFromServer:-1];
     else { [_player play]; _userPausedFlag = NO; }
@@ -645,17 +689,24 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     [self.item.server metadata:self.item.ratingKey done:^(NSDictionary *m, NSError *err) {
         PXPlayerScreen *me = weak;
         if (!me || me->_gone) return;
+        PXItem *fresh = m ? [PXItem itemWithJSON:m] : nil;
+        double t = target;
+        if (t < 0) {
+            double server = fresh.viewOffset;
+            t = server > 30 && fabs(server - local) > 5 ? server : local;
+            PXLog(@"player: resync local=%.0f server=%.0f -> %.0f", local, server, t);
+        }
+        if (!me->_directPlay) {
+            // Still stale and resyncing until the new session starts (startWithPlayback).
+            [me beginRestartAt:t];
+            if (fresh) me.item = fresh;
+            [me startAt:t];
+            return;
+        }
         me->_resyncing = NO;
         me->_stalePos = NO;
         me->_pausedAt = nil;
         me->_userPausedFlag = NO;
-        double t = target;
-        if (t < 0) {
-            double server = m ? [PXItem itemWithJSON:m].viewOffset : 0;
-            t = server > 30 && fabs(server - local) > 5 ? server : local;
-            PXLog(@"player: resync local=%.0f server=%.0f -> %.0f", local, server, t);
-        }
-        if (!me->_directPlay) { [me loadItemThenStartAt:t]; return; }
         if (fabs(t - local) > 1) [me seekTo:t];
         [me->_player play];
     }];
@@ -663,11 +714,19 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
 - (void)seekTo:(double)t {
     if (!_readyOnce) { _pendingSeek = t; _lastKnownPos = t; return; }
+    // After a long pause an explicit seek is the user's choice, not a stale
+    // position: a transcode restarts there (the server may have dropped the
+    // session), a direct play just seeks.
+    if (_stalePos) {
+        if (!_directPlay) { [self resumeFromServer:t]; return; }
+        _stalePos = NO;
+        _pausedAt = nil;
+    }
     double d = [self duration];
     t = MAX(0, d > 0 ? MIN(t, d - 2) : t);
     _lastKnownPos = t;
     [_player seekToTime:CMTimeMakeWithSeconds(t, 600) toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-    [self report:_player.rate > 0 ? @"playing" : @"paused"];
+    [self report:[self playState]];
 }
 
 - (void)scrub:(int)direction {
@@ -684,6 +743,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
 - (void)commitScrub {
     _scrubbing = NO;
+    if (_restarting) { [self showOSD:YES]; return; }
     if (_stalePos) { [self resumeFromServer:_scrubPos]; [self showOSD:YES]; return; }
     [self seekTo:_scrubPos];
     [_player play];
@@ -746,7 +806,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     PXMarkTracksManual(self.item.ratingKey);
     double pos = [self position];
     PXSetText(_center, PXL(@"Changement de piste…"));
-    [_player pause];
+    [self beginRestartAt:pos];
     __weak PXPlayerScreen *weak = self;
     [self.item.server selectStreamsForPart:self.item.part audio:audioID subtitle:subtitleID done:^(id j, NSError *e) {
         if (e) PXLog(@"player: stream selection failed: %@", e.localizedDescription);
@@ -762,7 +822,11 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 }
 
 - (void)changeVolume:(float)delta {
-    float v = roundf(MAX(0, MIN(1, [self storedVolume] + delta)) * 10) / 10;
+    [self setVolumeLevel:roundf(MAX(0, MIN(1, [self storedVolume] + delta)) * 10) / 10];
+}
+
+- (void)setVolumeLevel:(float)v {
+    v = MAX(0, MIN(1, v));
     _player.volume = v;
     PXSettingSet(@"volume", @(v));
     PXNoAnim(^{
@@ -824,7 +888,8 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     if (self.item.type != PXItemClip) [[PXPlex shared] setWatched:YES item:self.item.raw];   // not trailers
     if (_sleepAtEnd) { PXLog(@"player: sleep timer, end of item"); [self pop]; return; }
     // Titles queued from their page come before the next episode.
-    PXItem *queued = self.queue ? nil : [[PXPlayQueue shared] popNext];
+    // Left in the queue until it actually plays (Menu during the countdown keeps it).
+    PXItem *queued = self.queue ? nil : [PXPlayQueue shared].items.firstObject;
     if (queued) { [self offerNext:queued]; return; }
     if (self.queue) {
         NSUInteger i = [self.queue indexOfObjectPassingTest:^BOOL(PXItem *e, NSUInteger n, BOOL *stop) { return [e.ratingKey isEqual:self.item.ratingKey]; }];
@@ -954,8 +1019,10 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 - (void)playNext {
     PXItem *next = _next;
     _next = nil;
+    if ([PXPlayQueue shared].items.firstObject == next) [[PXPlayQueue shared] popNext];
     [_nextPanel removeFromSuperlayer];
     _nextPanel = nil;
+    [self beginRestartAt:0];
     self.item = next;
     _prefsApplied = NO;
     [self renderTitles];
@@ -1060,7 +1127,7 @@ PXScreen *PXPlayerScreenNew(PXItem *item, double offset) {
 NSDictionary *PXVideoPlayerState(void) {
     PXPlayerScreen *p = gCurrentPlayer;
     if (!p || !p.item.ratingKey) return nil;
-    return @{ @"state": [p pxPlaying] ? @"playing" : @"paused", @"time": @([p position]), @"duration": @([p duration]),
+    return @{ @"state": [p playState], @"time": @([p position]), @"duration": @([p duration]),
               @"ratingKey": p.item.ratingKey, @"server": p.item.server.identifier ?: @"" };
 }
 
@@ -1074,4 +1141,5 @@ void PXVideoPlayerControl(NSString *command, double value) {
     else if ([command isEqual:@"seekTo"]) [p seekTo:value];
     else if ([command isEqual:@"stepForward"]) [p seekTo:[p position] + 30];
     else if ([command isEqual:@"stepBack"]) [p seekTo:[p position] - 15];
+    else if ([command isEqual:@"volume"]) [p setVolumeLevel:value];   // 0..1
 }

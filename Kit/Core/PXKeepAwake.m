@@ -9,7 +9,7 @@ typedef int (*PXAssertCreate)(CFStringRef type, uint32_t level, CFStringRef name
 typedef int (*PXAssertRelease)(PXAssertionID aid);
 
 static PXAssertionID gAssertion;
-static BOOL gHeld;
+static BOOL gHeld, gUnavailable;   // unavailable: the assertion failed once, not retried
 static CFAbsoluteTime gLastHoldOff;
 
 static void *iokit(const char *sym) {
@@ -19,10 +19,11 @@ static void *iokit(const char *sym) {
 }
 
 void PXKeepAwake(BOOL video) {
-    if (!gHeld) {
+    if (!gHeld && !gUnavailable) {
         PXAssertCreate create = (PXAssertCreate)iokit("IOPMAssertionCreateWithName");
         // kIOPMAssertionTypeNoIdleSleep, kIOPMAssertionLevelOn (255)
         if (create && create(CFSTR("NoIdleSleepAssertion"), 255, CFSTR("PlexATV3 playback"), &gAssertion) == 0) gHeld = YES;
+        else gUnavailable = YES;
         PXLog(@"awake: idle sleep assertion %@", gHeld ? @"held" : @"failed");
     }
     if (!video) return;

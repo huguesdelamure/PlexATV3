@@ -49,7 +49,7 @@ static const uint8_t kMagic[8] = { 0x89, 0x42, 0x49, 0x46, 0x0d, 0x0a, 0x1a, 0x0
     const uint8_t *p = d.bytes;
     _count = OSReadLittleInt32(p, 12);
     _interval = OSReadLittleInt32(p, 16) ?: 1000;
-    if (d.length < 64 + (_count + 1) * 8) return NO;
+    if (d.length < 64 + ((uint64_t)_count + 1) * 8) return NO;
     _data = d;
     _ready = YES;
     PXLog(@"bif: %u thumbnails every %u ms", _count, _interval);
