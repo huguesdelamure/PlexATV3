@@ -60,7 +60,7 @@ void PXRuntimeDump(BOOL force) {
     unsigned int count = 0;
     const char **names = objc_copyClassNamesForImage(mainImage, &count);
     PXLog(@"dump: %u classes in %s", count, mainImage);
-    for (unsigned int i = 0; i < count; i++) {
+    for (unsigned int i = 0; i < count; i++) @autoreleasepool {   // thousands of classes: bound the peak
         Class cls = objc_getClass(names[i]);
         if (!cls) continue;
         NSString *path = [dir stringByAppendingPathComponent:[NSString stringWithFormat:@"%s.txt", names[i]]];

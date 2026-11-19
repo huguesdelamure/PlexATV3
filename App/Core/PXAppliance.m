@@ -50,7 +50,7 @@ void PXRegisterDevCommands(void);
 }
 
 - (id)controllerForIdentifier:(id)identifier args:(id)args {
-    [[PXImageCache shared] trimDiskCache];
+    [[PXImageCache shared] trimDiskCache];   // once per launch
     return PXHostControllerForScreen(PXHomeScreenNew());
 }
 
@@ -86,8 +86,8 @@ void PXRegisterDevCommands(void);
         NSDictionary *pick = nil;
         // Continue watching first, else on deck, else recently added.
         for (NSString *wanted in @[ @"home.continue", @"home.ondeck", @"home.movies.recent" ])
-            for (NSDictionary *h in mc[@"Hub"])
-                if (!pick && [h[@"hubIdentifier"] isEqual:wanted] && [h[@"Metadata"] count]) pick = h;
+            for (NSDictionary *h in PXJSONArray(mc[@"Hub"]))
+                if (!pick && [PXJSONDict(h)[@"hubIdentifier"] isEqual:wanted] && PXJSONArray(h[@"Metadata"]).count) pick = h;
         if (!pick) { completion(nil); return; }
         BOOL wide = ![pick[@"hubIdentifier"] isEqual:@"home.movies.recent"];
         NSMutableArray *items = [NSMutableArray array];
@@ -105,7 +105,7 @@ void PXRegisterDevCommands(void);
             if ([it.raw[@"UltraBlurColors"] isKindOfClass:[NSDictionary class]]) d[@"colors"] = it.raw[@"UltraBlurColors"];
             [items addObject:d];
         }
-        completion(@{ @"title": pick[@"title"] ?: @"Plex", @"items": items });
+        completion(@{ @"title": PXJSONString(pick[@"title"]) ?: @"Plex", @"items": items });
     }];
 }
 
@@ -122,9 +122,12 @@ void PXRegisterDevCommands(void);
 
 @end
 
+void PXSettingsFlush(void);   // PXSettings.m: writes the pending (coalesced) changes
+
 static NSUncaughtExceptionHandler *gPrevHandler;
 static void PXExceptionHandler(NSException *e) {
     PXLog(@"UNCAUGHT %@: %@\n%@", e.name, e.reason, [e.callStackSymbols componentsJoinedByString:@"\n"]);
+    PXSettingsFlush();
     [NSThread sleepForTimeInterval:0.3];   // let the async log writer flush
     if (gPrevHandler) gPrevHandler(e);
 }

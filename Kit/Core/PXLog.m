@@ -1,4 +1,8 @@
 #import "PXLog.h"
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <stdio.h>
 
 @interface PXKitMarker : NSObject
 @end
@@ -21,14 +25,27 @@ NSString *PXDataDir(void) {
     return dir;
 }
 
+static const long kLogMaxSize = 1024 * 1024;   // then one previous file, <name>.1
+
+// Private to mobile: the log names servers and addresses.
+static FILE *openLog(NSString *path) {
+    int fd = open(path.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd < 0) return NULL;
+    fchmod(fd, 0600);
+    FILE *f = fdopen(fd, "a");
+    if (!f) close(fd);
+    return f;
+}
+
 void PXLog(NSString *fmt, ...) {
     static dispatch_queue_t q;
     static FILE *f;
+    static NSString *path;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         q = dispatch_queue_create("plexatv.log", DISPATCH_QUEUE_SERIAL);
-        NSString *path = [PXDataDir() stringByAppendingPathComponent:@"plexatv.log"];
-        f = fopen(path.fileSystemRepresentation, "a");
+        path = [PXDataDir() stringByAppendingPathComponent:@"plexatv.log"];
+        f = openLog(path);
     });
     va_list ap;
     va_start(ap, fmt);
@@ -41,5 +58,10 @@ void PXLog(NSString *fmt, ...) {
         if (!df) { df = [NSDateFormatter new]; df.dateFormat = @"HH:mm:ss.SSS"; }
         fprintf(f, "%s %s\n", [[df stringFromDate:now] UTF8String], msg.UTF8String);
         fflush(f);
+        if (ftell(f) > kLogMaxSize) {
+            fclose(f);
+            rename(path.fileSystemRepresentation, [path stringByAppendingString:@".1"].fileSystemRepresentation);
+            f = openLog(path);
+        }
     });
 }

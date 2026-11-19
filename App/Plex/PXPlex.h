@@ -62,22 +62,13 @@ typedef void (^PXJSONBlock)(id json, NSError *error);
 - (void)get:(NSString *)path done:(PXJSONBlock)done;        // json: MediaContainer dict
 - (void)put:(NSString *)path;                               // fire and forget
 - (void)put:(NSString *)path done:(PXJSONBlock)done;
-- (NSURL *)imageURL:(NSString *)thumb width:(int)w height:(int)h;
-// Background art, optionally blurred by the server (blur radius in px, 0 = none).
-- (NSURL *)artURL:(NSString *)art width:(int)w height:(int)h blur:(int)blur;
 
 // Playback
 // Decides direct play vs server stream (asks the server for a decision) and
 // returns {url, directPlay, session (server streams), mode (human readable)}.
 - (void)preparePlayback:(NSDictionary *)metadata offset:(double)seconds done:(PXJSONBlock)done;
 - (void)reportTimeline:(NSDictionary *)metadata state:(NSString *)state timeMs:(long long)t;
-- (void)stopTranscode:(NSString *)session;
 - (void)setWatched:(BOOL)watched item:(NSDictionary *)metadata;
-// Persist the audio / subtitle choice on the server (applies to the next
-// playback session). streamID -1 = unchanged, subtitle 0 = none.
-- (void)selectStreamsForPart:(NSDictionary *)part audio:(NSInteger)audioID subtitle:(NSInteger)subtitleID done:(PXJSONBlock)done;
-// Full metadata (Media/Part/Stream, chapters) for playback / detail.
-- (void)metadata:(NSString *)ratingKey done:(PXJSONBlock)done;   // json: Metadata[0] dict
 
 @end
 

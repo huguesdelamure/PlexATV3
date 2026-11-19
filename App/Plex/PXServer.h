@@ -23,7 +23,9 @@
 @property (nonatomic, readonly) BOOL online;            // plex.tv presence
 @property (nonatomic, readonly) NSDictionary *resource;
 
-// Connection: best working address, probed once and remembered.
+// Connection: best working address, probed once and remembered. A remembered
+// relay is re-probed at launch; a request failing at network level probes
+// again once and is replayed once.
 @property (nonatomic, readonly) NSString *uri;
 @property (nonatomic, readonly) NSString *token;
 @property (nonatomic, readonly) BOOL connected;
@@ -34,7 +36,9 @@
 - (void)get:(NSString *)path done:(PXJSONBlock)done;        // json: MediaContainer dict
 - (void)put:(NSString *)path done:(PXJSONBlock)done;
 - (NSURL *)imageURL:(NSString *)thumb width:(int)w height:(int)h;
+// Background art, optionally blurred by the server (blur radius in px, 0 = none).
 - (NSURL *)artURL:(NSString *)art width:(int)w height:(int)h blur:(int)blur;
+// Full metadata (Media/Part/Stream, chapters) for playback / detail.
 - (void)metadata:(NSString *)ratingKey done:(PXJSONBlock)done;   // json: Metadata[0] dict
 
 // Playback (see PXPlex.h)
@@ -44,6 +48,8 @@
 - (void)trailersBefore:(NSDictionary *)movie count:(int)count done:(PXJSONBlock)done;
 - (void)stopTranscode:(NSString *)session;
 - (void)setWatched:(BOOL)watched item:(NSDictionary *)metadata;
+// Persist the audio / subtitle choice on the server (applies to the next
+// playback session). streamID -1 = unchanged, subtitle 0 = none.
 - (void)selectStreamsForPart:(NSDictionary *)part audio:(NSInteger)audioID subtitle:(NSInteger)subtitleID done:(PXJSONBlock)done;
 // Music: json {url, directPlay, session (server conversion)}.
 - (void)prepareAudio:(NSDictionary *)track done:(PXJSONBlock)done;

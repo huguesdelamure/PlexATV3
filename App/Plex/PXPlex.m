@@ -4,6 +4,7 @@
 #import "PXLog.h"
 #import "PXItem.h"
 #import "PXServer.h"
+#import "PXImageCache.h"
 #import <Security/Security.h>
 
 NSString *const PXSelectedServersDidChange = @"PXSelectedServersDidChange";
@@ -49,6 +50,8 @@ static NSArray *extraAnchors(void) {
 @implementation PXPlex {
     NSMutableDictionary *_servers;   // identifier -> PXServer
     NSArray *_order;                 // identifiers in plex.tv order
+    NSDictionary *_headers;          // identification headers, for _headersLanguage
+    NSString *_headersLanguage;
 }
 
 + (instancetype)shared {
@@ -71,6 +74,8 @@ static NSArray *extraAnchors(void) {
         NSOperationQueue *q = [NSOperationQueue new];
         q.maxConcurrentOperationCount = 2;
         _session = [NSURLSession sessionWithConfiguration:cfg delegate:self delegateQueue:q];
+        // Image downloads go to the same servers: same TLS trust.
+        [[PXImageCache shared] setTrustDelegate:self];
         _servers = [NSMutableDictionary dictionary];
         [self loadCachedServers];
     }
@@ -103,17 +108,26 @@ static NSArray *extraAnchors(void) {
 
 #pragma mark - HTTP
 
+// Built once; only the UI language can change while the app runs (the
+// token is not part of them).
 - (NSDictionary *)plexHeaders {
-    return @{ @"X-Plex-Client-Identifier": PXClientId(),
-              @"X-Plex-Product": kProduct,
-              @"X-Plex-Version": appVersion(),
-              @"X-Plex-Platform": @"iOS",
-              @"X-Plex-Platform-Version": @"8.4",
-              @"X-Plex-Device": @"Apple TV",
-              @"X-Plex-Model": @"AppleTV3,2",
-              @"X-Plex-Device-Name": @"Apple TV (PlexATV)",
-              @"X-Plex-Language": PXLanguage(),   // metadata (summaries, genres) in the UI language
-              @"Accept": @"application/json" };
+    NSString *language = PXLanguage();
+    @synchronized (self) {
+        if (!_headers || ![_headersLanguage isEqualToString:language]) {
+            _headersLanguage = language;
+            _headers = @{ @"X-Plex-Client-Identifier": PXClientId(),
+                          @"X-Plex-Product": kProduct,
+                          @"X-Plex-Version": appVersion(),
+                          @"X-Plex-Platform": @"iOS",
+                          @"X-Plex-Platform-Version": @"8.4",
+                          @"X-Plex-Device": @"Apple TV",
+                          @"X-Plex-Model": @"AppleTV3,2",
+                          @"X-Plex-Device-Name": @"Apple TV (PlexATV)",
+                          @"X-Plex-Language": language ?: @"en",   // metadata (summaries, genres) in the UI language
+                          @"Accept": @"application/json" };
+        }
+        return _headers;
+    }
 }
 
 // Query-string form of the identification headers (for AVPlayer URLs).
@@ -133,7 +147,14 @@ static NSArray *extraAnchors(void) {
 
 - (void)request:(NSString *)method url:(NSString *)url token:(NSString *)token headers:(NSDictionary *)extra
         timeout:(NSTimeInterval)timeout done:(PXJSONBlock)done {
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+    NSURL *u = [url isKindOfClass:[NSString class]] ? [NSURL URLWithString:url] : nil;
+    if (!u) {
+        PXLog(@"http %@: invalid URL", method);
+        NSError *err = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadURL userInfo:nil];
+        if (done) dispatch_async(dispatch_get_main_queue(), ^{ done(nil, err); });
+        return;
+    }
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:u];
     req.HTTPMethod = method;
     req.timeoutInterval = timeout;
     [[self plexHeaders] enumerateKeysAndObjectsUsingBlock:^(id k, id v, BOOL *stop) { [req setValue:v forHTTPHeaderField:k]; }];
@@ -231,7 +252,7 @@ static NSString *accountToken(void) { return PXSettingGet(@"accountToken") ?: PX
 
 - (NSDictionary *)currentHomeUser {
     NSString *uuid = PXSettingGet(@"homeUserUUID");
-    for (NSDictionary *u in self.homeUsers) if (uuid ? [u[@"uuid"] isEqual:uuid] : [u[@"admin"] boolValue]) return u;
+    for (NSDictionary *u in self.homeUsers) if ([u isKindOfClass:[NSDictionary class]] && (uuid ? [u[@"uuid"] isEqual:uuid] : PXJSONBool(u[@"admin"]))) return u;
     return nil;
 }
 
@@ -310,7 +331,7 @@ static id plistSafe(id v) {
 - (void)setResources:(NSArray *)resources {
     NSMutableArray *order = [NSMutableArray array];
     for (NSDictionary *r in resources) {
-        NSString *sid = r[@"clientIdentifier"];
+        NSString *sid = PXJSONString(PXJSONDict(r)[@"clientIdentifier"]);
         if (!sid || [order containsObject:sid]) continue;   // plex.tv may list a server twice
         PXServer *s = _servers[sid];
         if (s) [s updateResource:r]; else _servers[sid] = [[PXServer alloc] initWithResource:r];
@@ -342,7 +363,7 @@ static id plistSafe(id v) {
         NSMutableArray *servers = [NSMutableArray array];
         if ([json isKindOfClass:[NSArray class]])
             for (NSDictionary *r in json)
-                if ([r[@"provides"] containsString:@"server"]) [servers addObject:plistSafe(r)];
+                if ([PXJSONString(PXJSONDict(r)[@"provides"]) containsString:@"server"]) [servers addObject:plistSafe(r)];
         if (servers.count) {
             PXSettingSet(@"resources", servers);
             [self setResources:servers];
@@ -375,29 +396,49 @@ static NSString *onlineKey(NSString *guid) {
     return [guid hasPrefix:@"plex://"] ? [[guid componentsSeparatedByString:@"/"] lastObject] : nil;
 }
 
-- (void)fetchWatchlist:(PXJSONBlock)done {
-    [self fetchWatchlistFrom:0 into:[NSMutableArray array] done:done];
+// Pages of 100 (the provider refuses more), up to 1000 titles: the first page
+// gives the total, the others are fetched together, kept in order.
+static const NSInteger kWatchlistPage = 100, kWatchlistMax = 1000;
+
+- (void)fetchWatchlistPage:(NSInteger)page done:(PXJSONBlock)done {
+    NSString *path = [NSString stringWithFormat:@"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1"
+                      @"&X-Plex-Container-Start=%ld&X-Plex-Container-Size=%ld", (long)(page * kWatchlistPage), (long)kWatchlistPage];
+    [self.onlineProvider get:path done:done];
 }
 
-// Pages of 100 (the provider refuses more), up to 1000 titles.
-- (void)fetchWatchlistFrom:(NSInteger)start into:(NSMutableArray *)all done:(PXJSONBlock)done {
-    NSString *path = [NSString stringWithFormat:@"/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1"
-                      @"&X-Plex-Container-Start=%ld&X-Plex-Container-Size=100", (long)start];
-    [self.onlineProvider get:path done:^(NSDictionary *mc, NSError *err) {
-        NSArray *items = [PXItem itemsWithJSON:mc[@"Metadata"]];
-        [all addObjectsFromArray:items];
-        NSInteger total = [mc[@"totalSize"] integerValue];
-        if (!err && items.count == 100 && all.count < 1000 && (NSInteger)all.count < total) {
-            [self fetchWatchlistFrom:start + 100 into:all done:done];
+- (void)fetchWatchlist:(PXJSONBlock)done {
+    [self fetchWatchlistPage:0 done:^(NSDictionary *mc, NSError *err) {
+        NSArray *first = [PXItem itemsWithJSON:mc[@"Metadata"]];
+        NSInteger total = MIN((NSInteger)PXJSONNumber(mc[@"totalSize"]), kWatchlistMax);
+        NSInteger pages = (total + kWatchlistPage - 1) / kWatchlistPage;
+        if (err || !mc || (NSInteger)first.count < kWatchlistPage || pages <= 1) {
+            [self finishWatchlist:@[ first ] ok:(!err && mc) error:err done:done];
             return;
         }
-        if (mc) {
-            NSMutableSet *keys = [NSMutableSet set];
-            for (PXItem *it in all) if (it.ratingKey) [keys addObject:it.ratingKey];
-            self.watchlistKeys = keys;
+        NSMutableArray *slots = [NSMutableArray arrayWithObject:first];
+        for (NSInteger p = 1; p < pages; p++) [slots addObject:@[]];
+        __block NSInteger pending = pages - 1;
+        __block NSError *firstError = nil;
+        for (NSInteger p = 1; p < pages; p++) {
+            [self fetchWatchlistPage:p done:^(NSDictionary *pmc, NSError *perr) {
+                slots[p] = [PXItem itemsWithJSON:pmc[@"Metadata"]];
+                if (!firstError && (perr || !pmc)) firstError = perr ?: [NSError errorWithDomain:@"PXPlex" code:5 userInfo:nil];
+                if (--pending == 0) [self finishWatchlist:slots ok:!firstError error:firstError done:done];
+            }];
         }
-        if (done) done(all, err);
     }];
+}
+
+// ok: every page arrived, the watchlist keys can be replaced.
+- (void)finishWatchlist:(NSArray *)pages ok:(BOOL)ok error:(NSError *)err done:(PXJSONBlock)done {
+    NSMutableArray *all = [NSMutableArray array];
+    for (NSArray *items in pages) [all addObjectsFromArray:items];
+    if (ok) {
+        NSMutableSet *keys = [NSMutableSet set];
+        for (PXItem *it in all) if (it.ratingKey) [keys addObject:it.ratingKey];
+        self.watchlistKeys = keys;
+    }
+    if (done) done(all, err);
 }
 
 - (BOOL)isWatchlisted:(NSString *)guid { NSString *k = onlineKey(guid); return k && [_watchlistKeys containsObject:k]; }
@@ -429,7 +470,8 @@ static NSString *onlineKey(NSString *guid) {
         if (it || --pending == 0) { answered = YES; done(it, nil); }
     };
     for (PXServer *s in servers) {
-        [s get:[@"/library/all?guid=" stringByAppendingString:PXEncode(guid)] done:^(NSDictionary *mc, NSError *err) {
+        NSString *path = [NSString stringWithFormat:@"/library/all?guid=%@&X-Plex-Container-Start=0&X-Plex-Container-Size=1", PXEncode(guid)];
+        [s get:path done:^(NSDictionary *mc, NSError *err) {
             finish([PXItem itemsWithJSON:mc[@"Metadata"]].firstObject);
         }];
     }
@@ -441,8 +483,8 @@ static NSString *onlineKey(NSString *guid) {
     NSString *path = [NSString stringWithFormat:@"/library/search?query=%@&limit=20&searchTypes=movies,tv&searchProviders=discover&includeMetadata=1", PXEncode(query)];
     [self.onlineProvider get:path done:^(NSDictionary *mc, NSError *err) {
         NSMutableArray *raw = [NSMutableArray array];
-        for (NSDictionary *r in mc[@"SearchResults"])
-            for (NSDictionary *x in r[@"SearchResult"]) {
+        for (NSDictionary *r in PXJSONArray(mc[@"SearchResults"]))
+            for (NSDictionary *x in PXJSONArray(PXJSONDict(r)[@"SearchResult"])) {
                 if (![x isKindOfClass:[NSDictionary class]] || ![x[@"Metadata"] isKindOfClass:[NSDictionary class]]) continue;
                 NSMutableDictionary *m = [x[@"Metadata"] mutableCopy];
                 m[@"_server"] = self.onlineProvider.identifier;   // nested: not tagged by get
@@ -513,9 +555,6 @@ static NSString *onlineKey(NSString *guid) {
 - (void)get:(NSString *)path done:(PXJSONBlock)done { [self.primaryServer get:path done:done]; }
 - (void)put:(NSString *)path { [self.primaryServer put:path done:nil]; }
 - (void)put:(NSString *)path done:(PXJSONBlock)done { [self.primaryServer put:path done:done]; }
-- (NSURL *)imageURL:(NSString *)thumb width:(int)w height:(int)h { return [self.primaryServer imageURL:thumb width:w height:h]; }
-- (NSURL *)artURL:(NSString *)art width:(int)w height:(int)h blur:(int)blur { return [self.primaryServer artURL:art width:w height:h blur:blur]; }
-- (void)metadata:(NSString *)ratingKey done:(PXJSONBlock)done { [self.primaryServer metadata:ratingKey done:done]; }
 
 - (void)preparePlayback:(NSDictionary *)metadata offset:(double)seconds done:(PXJSONBlock)done {
     [[self serverFor:metadata] preparePlayback:metadata offset:seconds done:done];
@@ -523,10 +562,6 @@ static NSString *onlineKey(NSString *guid) {
 - (void)reportTimeline:(NSDictionary *)metadata state:(NSString *)state timeMs:(long long)t {
     [[self serverFor:metadata] reportTimeline:metadata state:state timeMs:t];
 }
-- (void)stopTranscode:(NSString *)session { [self.primaryServer stopTranscode:session]; }
 - (void)setWatched:(BOOL)watched item:(NSDictionary *)metadata { [[self serverFor:metadata] setWatched:watched item:metadata]; }
-- (void)selectStreamsForPart:(NSDictionary *)part audio:(NSInteger)audioID subtitle:(NSInteger)subtitleID done:(PXJSONBlock)done {
-    [self.primaryServer selectStreamsForPart:part audio:audioID subtitle:subtitleID done:done];
-}
 
 @end

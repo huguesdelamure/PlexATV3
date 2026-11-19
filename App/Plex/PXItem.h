@@ -97,3 +97,11 @@ typedef NS_ENUM(NSInteger, PXItemType) { PXItemOther, PXItemMovie, PXItemShow, P
 
 // YES when at least a third of the items have no poster: show them as 16:9 cards.
 BOOL PXItemsPreferLandscape(NSArray *items);
+
+// Defensive JSON accessors: the wrong type (NSNull, number for string…) gives
+// nil / 0 / NO / empty instead of an exception.
+NSString *PXJSONString(id v);        // strings, numbers as strings
+double PXJSONNumber(id v);
+BOOL PXJSONBool(id v);
+NSArray *PXJSONArray(id v);          // @[] when not an array
+NSDictionary *PXJSONDict(id v);      // nil when not a dictionary

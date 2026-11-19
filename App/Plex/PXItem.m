@@ -3,13 +3,19 @@
 #import "PXServer.h"
 #import "PXLocalize.h"
 
-static NSString *str(id v) {
+NSString *PXJSONString(id v) {
     if ([v isKindOfClass:[NSString class]]) return v;
     if ([v isKindOfClass:[NSNumber class]]) return [v stringValue];
     return nil;
 }
-static double num(id v) { return [v respondsToSelector:@selector(doubleValue)] ? [v doubleValue] : 0; }
-static NSArray *arr(id v) { return [v isKindOfClass:[NSArray class]] ? v : @[]; }
+double PXJSONNumber(id v) { return [v isKindOfClass:[NSNumber class]] || [v isKindOfClass:[NSString class]] ? [v doubleValue] : 0; }
+BOOL PXJSONBool(id v) { return [v isKindOfClass:[NSNumber class]] || [v isKindOfClass:[NSString class]] ? [v boolValue] : NO; }
+NSArray *PXJSONArray(id v) { return [v isKindOfClass:[NSArray class]] ? v : @[]; }
+NSDictionary *PXJSONDict(id v) { return [v isKindOfClass:[NSDictionary class]] ? v : nil; }
+
+static NSString *str(id v) { return PXJSONString(v); }
+static double num(id v) { return PXJSONNumber(v); }
+static NSArray *arr(id v) { return PXJSONArray(v); }
 
 static NSArray *tags(id list) {
     NSMutableArray *out = [NSMutableArray array];
@@ -32,10 +38,10 @@ static NSArray *tags(id list) {
     return iso3[str(_d[@"languageCode"]) ?: @""] ?: str(_d[@"languageCode"]);
 }
 - (NSString *)displayTitle { return str(_d[@"extendedDisplayTitle"]) ?: str(_d[@"displayTitle"]) ?: str(_d[@"language"]) ?: @"?"; }
-- (BOOL)selected { return [_d[@"selected"] boolValue]; }
-- (BOOL)isDefault { return [_d[@"default"] boolValue]; }
+- (BOOL)selected { return PXJSONBool(_d[@"selected"]); }
+- (BOOL)isDefault { return PXJSONBool(_d[@"default"]); }
 - (NSInteger)channels { return (NSInteger)num(_d[@"channels"]); }
-- (BOOL)forced { return [_d[@"forced"] boolValue]; }
+- (BOOL)forced { return PXJSONBool(_d[@"forced"]); }
 @end
 
 @implementation PXItem
@@ -222,17 +228,38 @@ static NSString *mediaChoiceKey(PXItem *it) {
 
 - (NSInteger)mediaIndex {
     NSArray *list = self.mediaList;
-    id chosen = [PXSettingGet(@"mediaChoices") objectForKey:mediaChoiceKey(self)];
-    if (chosen) for (NSUInteger i = 0; i < list.count; i++) if ([[list[i][@"id"] description] isEqual:chosen]) return (NSInteger)i;
+    id chosen = PXJSONDict(PXSettingGet(@"mediaChoices"))[mediaChoiceKey(self)];
+    if (chosen) for (NSUInteger i = 0; i < list.count; i++) if ([str(PXJSONDict(list[i])[@"id"]) isEqual:chosen]) return (NSInteger)i;
     return 0;
 }
+
+// Remembered choices are bounded: the oldest ones are forgotten first
+// ("mediaChoiceOrder" keeps the keys from oldest to newest).
+static const NSUInteger kMaxMediaChoices = 200;
 
 - (void)chooseMediaAtIndex:(NSInteger)index {
     NSArray *list = self.mediaList;
     if (index < 0 || index >= (NSInteger)list.count) return;
-    NSMutableDictionary *choices = [PXSettingGet(@"mediaChoices") mutableCopy] ?: [NSMutableDictionary dictionary];
-    choices[mediaChoiceKey(self)] = [list[index][@"id"] description] ?: @"";
+    NSString *key = mediaChoiceKey(self);
+    NSMutableDictionary *choices = [PXJSONDict(PXSettingGet(@"mediaChoices")) mutableCopy] ?: [NSMutableDictionary dictionary];
+    NSMutableArray *order = [PXJSONArray(PXSettingGet(@"mediaChoiceOrder")) mutableCopy];
+    // Choices saved before the order existed count as the oldest.
+    NSMutableArray *untracked = [NSMutableArray array];
+    for (NSString *k in choices) if (![order containsObject:k]) [untracked addObject:k];
+    [order insertObjects:untracked atIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, untracked.count)]];
+    [order removeObject:key];
+    if (index == 0) {
+        [choices removeObjectForKey:key];   // the first version is the default
+    } else {
+        choices[key] = str(PXJSONDict(list[index])[@"id"]) ?: @"";
+        [order addObject:key];
+    }
+    while (choices.count > kMaxMediaChoices && order.count) {
+        [choices removeObjectForKey:order.firstObject];
+        [order removeObjectAtIndex:0];
+    }
     PXSettingSet(@"mediaChoices", choices);
+    PXSettingSet(@"mediaChoiceOrder", order);
 }
 
 + (NSString *)labelForMedia:(NSDictionary *)m {
