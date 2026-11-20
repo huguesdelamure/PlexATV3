@@ -4,6 +4,7 @@
 #import "PXUI.h"
 #import "PXListLayer.h"
 #import "PXShelfLayer.h"
+#import "PXButtonRow.h"
 #import "PXOverlay.h"
 #import "PXAmbientPlex.h"
 #import "PXImageCache.h"
@@ -44,8 +45,11 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     CATextLayer *_title, *_artist, *_album, *_elapsed, *_remaining, *_upNext, *_modes;
     CALayer *_bar, *_fill;
     NSString *_shownKey;
+    CALayer *_lyricBox;
     CATextLayer *_lyricPrev, *_lyricNow, *_lyricNext;
     NSArray *_lyrics;            // {time (seconds, -1 if not synced), text}
+    NSInteger _lyricLine;        // line shown in the middle, -1 none, -2 to redraw
+    NSDictionary *_station;      // radio the server offers for the current track
     PXOverlay *_overlay;
 }
 
@@ -88,13 +92,17 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     _lyricPrev = PXText(PXFont(28), PXColorTextFaint());
     _lyricNow = PXText(PXFontSemi(34), PXColorText());
     _lyricNext = PXText(PXFont(28), PXColorTextFaint());
-    CGFloat ly = 830;
+    _lyricBox = [CALayer layer];
+    _lyricBox.frame = CGRectMake(x, 830, 960, 144);
+    [self.layer addSublayer:_lyricBox];
+    CGFloat ly = 0;
     for (CATextLayer *t in @[ _lyricPrev, _lyricNow, _lyricNext ]) {
-        t.frame = CGRectMake(x, ly, 960, 44);
+        t.frame = CGRectMake(0, ly, 960, 44);
         t.truncationMode = kCATruncationEnd;
-        [self.layer addSublayer:t];
+        [_lyricBox addSublayer:t];
         ly += 50;
     }
+    _lyricLine = -2;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(refresh) name:PXMusicDidChange object:nil];
     [self refresh];
 }
@@ -121,6 +129,7 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     }
     double d = mp.duration, p = mp.elapsed;
     NSString *modes = [@[ mp.playing ? @"" : PXL(@"En pause"),
+                          mp.radio ? PXL(@"Radio") : @"",
                           mp.shuffle ? PXL(@"Aléatoire") : @"",
                           mp.repeat == PXRepeatAll ? PXL(@"Répéter tout") : (mp.repeat == PXRepeatOne ? PXL(@"Répéter le titre") : @"") ]
                         componentsJoinedByString:@"   "];
@@ -135,14 +144,19 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     [self showLyricsAt:p];
 }
 
-// Lyrics stream of the track (streamType 4), LRC ("[mm:ss.xx] line") or text.
+// Lyrics stream of the track (streamType 4), LRC ("[mm:ss.xx] line") or text,
+// and the radio the server offers for the track (options).
 - (void)loadLyrics:(PXItem *)t {
     _lyrics = nil;
+    _station = nil;
+    _lyricLine = -2;
     [self styleLyrics];
     [self showLyricsAt:0];
     NSString *key = t.uniqueKey;
     __weak PXNowPlayingScreen *weak = self;
-    [t.server metadata:t.ratingKey done:^(NSDictionary *m, NSError *err) {
+    [t.server metadata:t.ratingKey stations:^(NSDictionary *m, NSArray *stations, NSError *err) {
+        PXNowPlayingScreen *s = weak;
+        if (s && [key isEqual:s->_shownKey]) s->_station = [PXNowPlayingScreen station:stations of:t.ratingKey];
         PXItem *full = m ? [PXItem itemWithJSON:m] : nil;
         NSDictionary *stream = nil;
         for (NSDictionary *st in full.part[@"Stream"]) if ([st isKindOfClass:[NSDictionary class]] && [st[@"streamType"] intValue] == 4 && st[@"key"]) stream = st;
@@ -151,11 +165,20 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
             PXNowPlayingScreen *me = weak;
             if (!me || !text.length || ![key isEqual:me->_shownKey]) return;
             me->_lyrics = [PXNowPlayingScreen parseLyrics:text];
+            me->_lyricLine = -2;
             PXLog(@"music: %lu lyric lines for %@", (unsigned long)me->_lyrics.count, t.title);
             [me styleLyrics];
             [me showLyricsAt:[PXMusicPlayer shared].elapsed];
         }];
     }];
+}
+
+// The station of this item when the server names it in its key
+// ("/library/metadata/<ratingKey>/station/…"), else the first one offered.
++ (NSDictionary *)station:(NSArray *)stations of:(NSString *)ratingKey {
+    NSString *own = [NSString stringWithFormat:@"/metadata/%@/", ratingKey];
+    for (NSDictionary *st in stations) if ([PXJSONString(st[@"key"]) rangeOfString:own].location != NSNotFound) return st;
+    return stations.firstObject;
 }
 
 // LRC lines may carry several start tags ("[00:12.00][01:40.00] chorus"):
@@ -183,29 +206,50 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
     return _lyrics.count && [_lyrics.firstObject[@"time"] doubleValue] >= 0;
 }
 
-// Synced: the current line stands out. Plain text: a fixed block of the
-// first lines, all alike (no position to follow).
+// Synced: the current line stands out. Plain text: all lines alike, the
+// position is only an estimate.
 - (void)styleLyrics {
     BOOL synced = !_lyrics.count || [self lyricsSynced];
     PXNoAnim(^{ self->_lyricNow.foregroundColor = synced ? PXColorText() : PXColorTextFaint(); });
 }
 
+// Plain lyrics scroll with the progress of the track: the middle line goes
+// from the second to the last but one, between a short intro and outro.
+- (NSInteger)plainLineAt:(double)t {
+    NSInteger n = _lyrics.count;
+    double d = [PXMusicPlayer shared].duration;
+    if (n < 4 || d <= 0) return 1;
+    double margin = MIN(15, d * 0.08);
+    double f = MAX(0, MIN(1, (t - margin) / MAX(1, d - 2 * margin)));
+    return 1 + MIN(n - 3, (NSInteger)floor(f * (n - 2)));
+}
+
+// Redrawn only when the middle line changes; one line forward slides up.
 - (void)showLyricsAt:(double)t {
-    NSString *prev = @"", *now = @"", *next = @"";
-    if (_lyrics.count) {
-        NSInteger i = 0;
-        if ([self lyricsSynced]) {
-            for (NSInteger k = 0; k < (NSInteger)_lyrics.count; k++) if ([_lyrics[k][@"time"] doubleValue] <= t) i = k;
-            if (i > 0) prev = _lyrics[i - 1][@"text"];
-            now = _lyrics[i][@"text"];
-            if (i + 1 < (NSInteger)_lyrics.count) next = _lyrics[i + 1][@"text"];
-        } else {
-            prev = _lyrics[0][@"text"];
-            if (_lyrics.count > 1) now = _lyrics[1][@"text"];
-            if (_lyrics.count > 2) next = _lyrics[2][@"text"];
-        }
-    }
+    NSInteger n = _lyrics.count, i = -1;
+    if (n && [self lyricsSynced]) {
+        i = 0;
+        for (NSInteger k = 0; k < n; k++) if ([_lyrics[k][@"time"] doubleValue] <= t) i = k;
+    } else if (n) i = [self plainLineAt:t];
+    if (i == _lyricLine) return;
+    BOOL slide = _lyricLine >= 0 && i == _lyricLine + 1;
+    _lyricLine = i;
+    NSString *prev = i > 0 ? _lyrics[i - 1][@"text"] : @"";
+    NSString *now = i >= 0 && i < n ? _lyrics[i][@"text"] : @"";
+    NSString *next = i >= 0 && i + 1 < n ? _lyrics[i + 1][@"text"] : @"";
     PXNoAnim(^{ PXSetText(self->_lyricPrev, prev); PXSetText(self->_lyricNow, now); PXSetText(self->_lyricNext, next); });
+    if (!slide) return;
+    CABasicAnimation *move = [CABasicAnimation animationWithKeyPath:@"transform.translation.y"];
+    move.fromValue = @50;
+    move.toValue = @0;
+    move.duration = 0.4;
+    move.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+    [_lyricBox addAnimation:move forKey:@"slide"];
+    CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+    fade.fromValue = @0;
+    fade.toValue = @1;
+    fade.duration = 0.4;
+    [_lyricNext addAnimation:fade forKey:@"fade"];
 }
 
 - (void)showOptions {
@@ -219,7 +263,21 @@ BOOL PXNowPlayingIsShown(void) { return gNowPlaying != nil; }
         mp.repeat = (mp.repeat + 1) % 3; [weak closeOverlay];
     }];
     PXListRow *stop = [PXListRow title:PXL(@"Arrêter la lecture") value:@"" action:^{ [weak closeOverlay]; [mp stop]; }];
-    _overlay = [PXOverlay overlayInLayer:self.layer title:PXL(@"Options") rows:@[ shuffle, repeat, stop ]];
+    NSMutableArray *rows = [NSMutableArray arrayWithObjects:shuffle, repeat, nil];
+    NSDictionary *st = _station;
+    PXServer *server = mp.current.server;
+    if (st && server) {
+        // Named after the track when its key says so; else the server's title.
+        BOOL own = [PXJSONString(st[@"key"]) rangeOfString:[NSString stringWithFormat:@"/metadata/%@/", mp.current.ratingKey]].location != NSNotFound;
+        PXListRow *radio = [PXListRow title:own ? PXL(@"Radio des titres similaires") : PXL(@"Radio")
+                                      value:own ? @"" : (PXJSONString(st[@"title"]) ?: @"") action:^{
+            [weak closeOverlay];
+            [mp playStation:PXJSONString(st[@"key"]) server:server done:nil];
+        }];
+        [rows addObject:radio];
+    }
+    [rows addObject:stop];
+    _overlay = [PXOverlay overlayInLayer:self.layer title:PXL(@"Options") rows:rows];
     _overlay.onClose = ^{ PXNowPlayingScreen *me = weak; if (me) me->_overlay = nil; };
 }
 
@@ -374,7 +432,10 @@ PXScreen *PXAlbumScreenNew(PXItem *album) {
     PXAmbientLayer *_ambient;
     CALayer *_rows;
     NSMutableArray *_shelves;
-    NSInteger _index;
+    NSInteger _index;            // shelf, -1 the buttons
+    PXButtonRow *_buttons;       // "Radio" when the server offers an artist station
+    NSString *_stationKey;
+    BOOL _radioLoading;
 }
 
 - (void)setup {
@@ -393,11 +454,17 @@ PXScreen *PXAlbumScreenNew(PXItem *album) {
     _shelves = [NSMutableArray array];
     PXServer *sv = self.artist.server;
     __weak PXArtistScreen *weak = self;
-    // Biography (full metadata), then the albums and the most played tracks.
-    [sv metadata:self.artist.ratingKey done:^(NSDictionary *m, NSError *err) {
+    _buttons = [[PXButtonRow alloc] initWithFrame:CGRectMake(420, 292, 1380, 80)];
+    _buttons.hidden = YES;
+    [self.layer addSublayer:_buttons];
+    // Biography and radio (full metadata), then the albums and the most played tracks.
+    [sv metadata:self.artist.ratingKey stations:^(NSDictionary *m, NSArray *stations, NSError *err) {
         PXArtistScreen *me = weak;
         NSString *bio = [m[@"summary"] isKindOfClass:[NSString class]] ? m[@"summary"] : nil;
-        if (me && bio.length) [me.layer addSublayer:PXAsyncLabel(bio, PXFont(26), PXColorWhite(0.8), CGRectMake(420, 175, 1380, 140), 4, NO)];
+        NSDictionary *station = [PXNowPlayingScreen station:stations of:me.artist.ratingKey];
+        int lines = station ? 3 : 4;   // the last line leaves room for the radio button
+        if (me && bio.length) [me.layer addSublayer:PXAsyncLabel(bio, PXFont(26), PXColorWhite(0.8), CGRectMake(420, 175, 1380, 35 * lines), lines, NO)];
+        if (me) [me showStation:station];
         NSString *sid = [m[@"librarySectionID"] description] ?: me.artist.librarySectionID;
         if (!me || !sid.length) return;
         NSString *path = [NSString stringWithFormat:@"/library/sections/%@/all?type=10&artist.id=%@&sort=viewCount:desc&X-Plex-Container-Size=20", sid, me.artist.ratingKey];
@@ -410,6 +477,34 @@ PXScreen *PXAlbumScreenNew(PXItem *album) {
     }];
 }
 
+- (void)showStation:(NSDictionary *)station {
+    _stationKey = PXJSONString(station[@"key"]);
+    if (!_stationKey) return;   // no button without a station from the server
+    [self setRadioTitle:PXL(@"Radio")];
+    _buttons.hidden = NO;
+    if (!_shelves.count) _index = -1;
+    [self updateFocus];
+}
+
+- (void)setRadioTitle:(NSString *)title {
+    __weak PXArtistScreen *weak = self;
+    _buttons.buttons = @[ [PXButton icon:PXIconPlay title:title action:^{ [weak playRadio]; }] ];
+}
+
+- (void)playRadio {
+    if (_radioLoading || !_stationKey) return;
+    _radioLoading = YES;
+    [self setRadioTitle:PXL(@"Chargement…")];
+    __weak PXArtistScreen *weak = self;
+    [[PXMusicPlayer shared] playStation:_stationKey server:self.artist.server done:^(BOOL ok) {
+        PXArtistScreen *me = weak;
+        if (!me) return;
+        me->_radioLoading = NO;
+        [me setRadioTitle:ok ? PXL(@"Radio") : PXL(@"Radio indisponible")];
+        if (ok && [me isOnTop]) [me push:PXNowPlayingScreenNew()];
+    }];
+}
+
 - (void)addRow:(NSString *)title items:(NSArray *)items at:(NSInteger)order {
     if (!items.count) return;
     PXShelfLayer *s = [[PXShelfLayer alloc] initWithTitle:title width:1920 imageSize:CGSizeMake(220, 220) artwork:PXArtworkPoster];
@@ -417,6 +512,7 @@ PXScreen *PXAlbumScreenNew(PXItem *album) {
     [s setValue:@(order) forKey:@"pxOrder"];
     [_shelves addObject:s];
     [_shelves sortUsingComparator:^NSComparisonResult(CALayer *a, CALayer *b) { return [[a valueForKey:@"pxOrder"] compare:[b valueForKey:@"pxOrder"]]; }];
+    if (_index < 0 && _shelves.count == 1 && !_radioLoading) _index = 0;   // shelves first, as without a radio
     CGFloat y = 0;
     for (PXShelfLayer *sh in _shelves) {
         PXNoAnim(^{ sh.position = CGPointMake(0, y); if (!sh.superlayer) [self->_rows addSublayer:sh]; });
@@ -427,20 +523,33 @@ PXScreen *PXAlbumScreenNew(PXItem *album) {
 
 - (void)updateFocus {
     for (NSInteger i = 0; i < (NSInteger)_shelves.count; i++) [_shelves[i] setActive:self.hasFocus && i == _index];
+    _buttons.active = self.hasFocus && _index < 0;
     if (_index >= (NSInteger)_shelves.count) return;
-    CGFloat y = 380 - [_shelves[_index] position].y;
+    CGFloat y = _index < 0 ? 380 : 380 - [_shelves[_index] position].y;
     PXAnim(0.3, ^{ self->_rows.position = CGPointMake(0, y); });
 }
 
 - (void)focusChanged { [self updateFocus]; }
 
 - (BOOL)handleKey:(PXKey)key {
+    if (_index < 0) {   // radio button
+        switch (key) {
+            case PXKeyDown: if (_shelves.count) { _index = 0; [self updateFocus]; } return YES;
+            case PXKeySelect: case PXKeyPlayPause: [_buttons activate]; return YES;
+            case PXKeyLeft: case PXKeyRight: case PXKeyUp: return YES;
+            default: return NO;
+        }
+    }
     if (!_shelves.count) return NO;
     PXShelfLayer *s = _shelves[_index];
     switch (key) {
         case PXKeyLeft: case PXKeyRight: [s moveBy:key == PXKeyLeft ? -1 : 1]; return YES;
         case PXKeyDown: if (_index + 1 < (NSInteger)_shelves.count) { _index++; [self updateFocus]; } return YES;
-        case PXKeyUp: if (_index > 0) { _index--; [self updateFocus]; } return YES;
+        case PXKeyUp:
+            if (_index > 0) _index--;
+            else if (!_buttons.hidden) _index = -1;
+            [self updateFocus];
+            return YES;
         case PXKeySelect: case PXKeyPlayPause: {
             PXItem *it = s.focusedItem;
             if (!it) return YES;

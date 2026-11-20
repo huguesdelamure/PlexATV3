@@ -20,6 +20,13 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     double _lastReport;
     NSInteger _failures;         // consecutive unplayable tracks
     BOOL _reported;              // the current track was reported, "stopped" still owed
+    // Server radio: play queue extended as it plays.
+    NSString *_radioQueueID;
+    PXServer *_radioServer;
+    NSInteger _radioGen;         // ignores answers for a radio already left
+    NSInteger _stationGen;       // ignores a station answer once other music started
+    BOOL _radioFetching;         // one request at a time
+    BOOL _radioAdvance;          // the queue ended while fetching: next track when it comes
 }
 
 + (instancetype)shared {
@@ -50,6 +57,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 - (NSArray *)queue { return [_queue copy] ?: @[]; }
 - (NSInteger)index { return _index; }
 - (BOOL)active { return self.current != nil; }
+- (BOOL)radio { return _radioQueueID != nil; }
 - (BOOL)playing { return _player.rate > 0; }
 - (double)elapsed { double p = CMTimeGetSeconds(_player.currentTime); return isfinite(p) ? p : 0; }
 - (double)duration {
@@ -68,6 +76,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
 - (void)playTracks:(NSArray *)tracks startAt:(NSInteger)index shuffle:(BOOL)shuffle {
     if (!tracks.count) return;
     [self report:@"stopped"];   // the outgoing track, before the queue changes
+    [self clearRadio];
     _failures = 0;
     _original = [tracks copy];
     _queue = [tracks mutableCopy];
@@ -79,6 +88,73 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     }
     [self startCurrent];
 }
+
+#pragma mark - Radio
+
+- (void)clearRadio {
+    _radioGen++;
+    _stationGen++;
+    _radioQueueID = nil;
+    _radioServer = nil;
+    _radioFetching = NO;
+    _radioAdvance = NO;
+}
+
+- (void)playStation:(NSString *)stationKey server:(PXServer *)server done:(void (^)(BOOL ok))done {
+    NSInteger gen = ++_stationGen;   // a queue started meanwhile wins; the current radio goes on
+    __weak PXMusicPlayer *weak = self;
+    [server stationQueue:stationKey done:^(NSDictionary *r, NSError *err) {
+        PXMusicPlayer *me = weak;
+        if (!me || gen != me->_stationGen) { if (done) done(NO); return; }   // other music started meanwhile
+        NSArray *items = r[@"items"];
+        NSString *queueID = r[@"playQueueID"];
+        if (!items.count) { if (done) done(NO); return; }
+        [me playTracks:items startAt:[r[@"selected"] integerValue] shuffle:NO];
+        if (queueID.length) { me->_radioQueueID = queueID; me->_radioServer = server; }
+        [me extendRadioIfNeeded];
+        [me changed];
+        if (done) done(YES);
+    }];
+}
+
+- (void)extendRadioIfNeeded {
+    if (_radioQueueID && _index + 3 >= (NSInteger)_queue.count) [self extendRadio];
+}
+
+// Tracks of the server queue after the last one known, appended to the queue.
+- (void)extendRadio {
+    if (!_radioQueueID || _radioFetching) return;
+    _radioFetching = YES;
+    NSInteger gen = _radioGen;
+    NSString *last = PXJSONString([(PXItem *)_original.lastObject raw][@"playQueueItemID"]);
+    __weak PXMusicPlayer *weak = self;
+    [_radioServer playQueue:_radioQueueID after:last done:^(NSDictionary *r, NSError *err) {
+        PXMusicPlayer *me = weak;
+        if (!me || gen != me->_radioGen) return;
+        me->_radioFetching = NO;
+        NSMutableSet *known = [NSMutableSet set];
+        for (PXItem *t in me->_original) { NSString *k = PXJSONString(t.raw[@"playQueueItemID"]); if (k) [known addObject:k]; }
+        NSMutableArray *fresh = [NSMutableArray array];
+        for (PXItem *t in r[@"items"]) {
+            NSString *k = PXJSONString(t.raw[@"playQueueItemID"]);
+            if (k && ![known containsObject:k]) { [known addObject:k]; [fresh addObject:t]; }
+        }
+        me->_original = [me->_original arrayByAddingObjectsFromArray:fresh];
+        [me->_queue addObjectsFromArray:fresh];
+        PXLog(@"radio: %lu new tracks appended, queue now %lu", (unsigned long)fresh.count, (unsigned long)me->_queue.count);
+        BOOL advance = me->_radioAdvance;
+        me->_radioAdvance = NO;
+        if (advance) {
+            if (!fresh.count) { PXLog(@"radio: nothing more from the server, stopping"); [me stop]; return; }
+            me->_index++;
+            [me startCurrent];
+            return;
+        }
+        if (fresh.count) [me changed];
+    }];
+}
+
+#pragma mark - Order
 
 - (void)setShuffle:(BOOL)shuffle {
     if (shuffle == _shuffle || !_queue.count) { _shuffle = shuffle; return; }
@@ -105,6 +181,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     if (!_queue.count) return;
     [self report:@"stopped"];
     if (_index + 1 < (NSInteger)_queue.count) _index++;
+    else if (_radioQueueID) { _radioAdvance = YES; [self extendRadio]; return; }   // wait for what follows
     else if (_repeat == PXRepeatAll) _index = 0;
     else { [self stop]; return; }
     [self startCurrent];
@@ -114,6 +191,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     if (!_queue.count) return;
     if (self.elapsed > 3 || _index == 0) { [_player seekToTime:kCMTimeZero]; _lastReport = 0; return; }
     [self report:@"stopped"];
+    _radioAdvance = NO;
     _index--;
     [self startCurrent];
 }
@@ -138,6 +216,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     [_player pause];
     [_player replaceCurrentItemWithPlayerItem:nil];
     PXAllowSleep();
+    [self clearRadio];
     _queue = nil;
     _original = nil;
     _index = 0;
@@ -162,6 +241,7 @@ NSString *const PXMusicDidChange = @"PXMusicDidChange";
     [_player pause];
     NSInteger serial = ++_serial;
     [self changed];
+    [self extendRadioIfNeeded];
     __weak PXMusicPlayer *weak = self;
     PXServer *server = track.server;
     [server prepareAudio:track.raw convert:convert done:^(NSDictionary *r, NSError *err) {

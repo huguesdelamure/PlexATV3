@@ -284,6 +284,75 @@ static NSURL *publicImageURL(NSString *url, int w, int h, int blur) {
     }];
 }
 
+// Stations sit in "Stations" (artist) or elsewhere depending on the server
+// version: every dictionary whose key holds "/station/", at any depth.
+static void collectStations(id obj, NSMutableArray *out, int depth) {
+    if (depth > 6) return;
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        NSString *k = PXJSONString(obj[@"key"]);
+        if (k && [k rangeOfString:@"/station/"].location != NSNotFound && ![out containsObject:obj]) [out addObject:obj];
+        for (id v in [obj allValues]) collectStations(v, out, depth + 1);
+    } else if ([obj isKindOfClass:[NSArray class]]) {
+        for (id v in obj) collectStations(v, out, depth + 1);
+    }
+}
+
+- (void)metadata:(NSString *)ratingKey stations:(void (^)(NSDictionary *metadata, NSArray *stations, NSError *err))done {
+    NSString *path = [NSString stringWithFormat:@"/library/metadata/%@?includeChapters=1&includeExtras=1&includeMarkers=1&includeStations=1", ratingKey];
+    [self get:path done:^(NSDictionary *mc, NSError *err) {
+        NSDictionary *m = PXJSONDict(PXJSONArray(mc[@"Metadata"]).firstObject);
+        NSMutableArray *stations = [NSMutableArray array];
+        collectStations(mc, stations, 0);
+        NSMutableArray *desc = [NSMutableArray array];
+        for (NSDictionary *st in stations)
+            [desc addObject:[NSString stringWithFormat:@"%@ (%@, %@)", st[@"key"], PXJSONString(st[@"title"]) ?: @"-", PXJSONString(st[@"type"]) ?: @"-"]];
+        PXLog(@"radio: %lu station(s) for %@ %@: %@", (unsigned long)stations.count, PXJSONString(m[@"type"]) ?: @"item", ratingKey,
+              [desc componentsJoinedByString:@" | "]);
+        done(m, stations, err);
+    }];
+}
+
+// MediaContainer of a play queue: its tracks and the selected one.
+static NSDictionary *queueResult(id json, NSString *sid) {
+    NSDictionary *mc = PXJSONDict(PXJSONDict(json)[@"MediaContainer"]);
+    tagServer(mc, sid);
+    NSMutableArray *tracks = [NSMutableArray array];
+    for (PXItem *it in [PXItem itemsWithJSON:PXJSONArray(mc[@"Metadata"])]) if (it.type == PXItemTrack) [tracks addObject:it];
+    NSString *selected = PXJSONString(mc[@"playQueueSelectedItemID"]);
+    NSUInteger sel = selected ? [tracks indexOfObjectPassingTest:^BOOL(PXItem *t, NSUInteger i, BOOL *stop) {
+        return [PXJSONString(t.raw[@"playQueueItemID"]) isEqual:selected];
+    }] : NSNotFound;
+    return @{ @"items": tracks, @"playQueueID": PXJSONString(mc[@"playQueueID"]) ?: @"",
+              @"total": PXJSONString(mc[@"playQueueTotalCount"]) ?: @"?", @"selected": @(sel == NSNotFound ? 0 : sel) };
+}
+
+- (void)stationQueue:(NSString *)stationKey done:(PXJSONBlock)done {
+    // A path of the library ("/library/…/station/…"), as for any library item.
+    NSString *uri = [stationKey hasPrefix:@"/"]
+        ? [NSString stringWithFormat:@"server://%@/com.plexapp.plugins.library%@", self.identifier, stationKey] : stationKey;
+    NSString *path = [NSString stringWithFormat:@"/playQueues?type=audio&uri=%@&shuffle=0&repeat=0", PXEncode(uri)];
+    PXLog(@"radio: POST /playQueues type=audio uri=%@", uri);
+    NSString *sid = self.identifier;
+    [self request:@"POST" path:path timeout:30 headers:nil done:^(id json, NSError *err) {
+        NSDictionary *r = queueResult(json, sid);
+        PXLog(@"radio: queue %@ -> %lu tracks (playQueueTotalCount %@) %@", r[@"playQueueID"], (unsigned long)[r[@"items"] count],
+              r[@"total"], err.localizedDescription ?: @"");
+        done(r, err);
+    }];
+}
+
+- (void)playQueue:(NSString *)queueID after:(NSString *)playQueueItemID done:(PXJSONBlock)done {
+    NSString *path = [NSString stringWithFormat:@"/playQueues/%@?window=50%@", PXEncode(queueID),
+                      playQueueItemID ? [@"&center=" stringByAppendingString:PXEncode(playQueueItemID)] : @""];
+    NSString *sid = self.identifier;
+    [self request:@"GET" path:path timeout:30 headers:nil done:^(id json, NSError *err) {
+        NSDictionary *r = queueResult(json, sid);
+        PXLog(@"radio: refresh queue %@ around item %@ -> %lu tracks (playQueueTotalCount %@) %@", queueID, playQueueItemID ?: @"-",
+              (unsigned long)[r[@"items"] count], r[@"total"], err.localizedDescription ?: @"");
+        done(r, err);
+    }];
+}
+
 #pragma mark - Playback
 
 // What the A5 decodes in hardware with AVPlayer (Apple TV 3 specs):
@@ -474,8 +543,12 @@ static NSDictionary *videoStream(NSDictionary *part) {
 - (void)reportTimeline:(NSDictionary *)metadata state:(NSString *)state timeMs:(long long)t {
     NSString *rk = PXJSONString(metadata[@"ratingKey"]);
     if (!rk || !state) return;
-    NSString *path = [NSString stringWithFormat:@"/:/timeline?ratingKey=%@&key=%@&state=%@&time=%lld&duration=%@&identifier=com.plexapp.plugins.library",
-                      rk, PXEncode([@"/library/metadata/" stringByAppendingString:rk]), state, t, metadata[@"duration"] ?: @0];
+    NSMutableString *path = [NSMutableString stringWithFormat:@"/:/timeline?ratingKey=%@&key=%@&state=%@&time=%lld&duration=%@&identifier=com.plexapp.plugins.library",
+                             rk, PXEncode([@"/library/metadata/" stringByAppendingString:rk]), state, t, metadata[@"duration"] ?: @0];
+    // Tracks of a server play queue (radios): tells the server where the
+    // queue stands, so it can generate what follows.
+    NSString *pqItem = [metadata[@"type"] isEqual:@"track"] ? PXJSONString(metadata[@"playQueueItemID"]) : nil;
+    if (pqItem) [path appendFormat:@"&playQueueItemID=%@", PXEncode(pqItem)];
     [self request:@"GET" path:path timeout:10 headers:nil done:nil];
 }
 

@@ -57,6 +57,15 @@
 - (void)stopAudioTranscode:(NSString *)session;
 // Plain text resource of the server (lyrics streams), nil on failure.
 - (void)getText:(NSString *)path done:(void (^)(NSString *text))done;
+// Metadata[0] (same query as -metadata:) with the radio stations the server
+// offers for the item (includeStations=1): dictionaries whose "key" holds
+// "/station/", found anywhere in the answer. Empty when the server has none.
+- (void)metadata:(NSString *)ratingKey stations:(void (^)(NSDictionary *metadata, NSArray *stations, NSError *err))done;
+// Server play queue of a station (its key as the server gave it), then a
+// later window of the same queue (radios are generated as they play).
+// json: {items (PXItem tracks), playQueueID, selected (index in items)}.
+- (void)stationQueue:(NSString *)stationKey done:(PXJSONBlock)done;
+- (void)playQueue:(NSString *)queueID after:(NSString *)playQueueItemID done:(PXJSONBlock)done;
 - (NSString *)plexQuery;   // identification + token query string (AVPlayer URLs)
 
 @end

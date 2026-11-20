@@ -3,7 +3,7 @@
 // app; stops when a video starts or the app is left.
 
 #import <Foundation/Foundation.h>
-@class PXItem;
+@class PXItem, PXServer;
 
 typedef NS_ENUM(NSInteger, PXRepeatMode) { PXRepeatOff, PXRepeatAll, PXRepeatOne };
 
@@ -17,12 +17,17 @@ extern NSString *const PXMusicDidChange;   // track, play state or queue changed
 - (void)next;
 - (void)previous;       // back to the start of the track after 3 s, else previous track
 - (void)stop;
+// Server radio (station key as the server gave it): plays its play queue and
+// asks the server for what follows near the end. done(NO): no track came back
+// or other music was started meanwhile.
+- (void)playStation:(NSString *)stationKey server:(PXServer *)server done:(void (^)(BOOL ok))done;
 
 @property (nonatomic, readonly) PXItem *current;
 @property (nonatomic, readonly) NSArray *queue;        // in play order
 @property (nonatomic, readonly) NSInteger index;
 @property (nonatomic, readonly) BOOL playing;          // not paused
 @property (nonatomic, readonly) BOOL active;           // a queue is loaded
+@property (nonatomic, readonly) BOOL radio;            // the queue is a server radio
 @property (nonatomic, readonly) double elapsed;        // seconds
 @property (nonatomic, readonly) double duration;
 @property (nonatomic, assign) BOOL shuffle;            // reshuffles what follows the current track
