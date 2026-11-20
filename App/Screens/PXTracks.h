@@ -3,6 +3,7 @@
 #import "PXListLayer.h"
 #import "PXItem.h"
 #import "PXLocalize.h"
+#import "PXSettings.h"
 
 static inline NSString *PXTrackLabel(PXStream *s) {
     if (!s) return PXL(@"Aucun");
@@ -44,4 +45,21 @@ static inline NSArray *PXSubtitleRows(PXItem *item, void (^pick)(NSInteger strea
         [rows addObject:r];
     }
     return rows;
+}
+
+// Réglages > Taille des sous-titres, burned in by the server transcoder
+// (also changed from the player options).
+static inline NSString *PXSubtitleSizeLabel(void) {
+    switch ([PXSettingGet(@"subtitleSize") intValue] ?: 100) {
+        case 80: return PXL(@"Petite");
+        case 125: return PXL(@"Grande");
+        case 150: return PXL(@"Très grande");
+        default: return PXL(@"Normale");
+    }
+}
+
+static inline void PXNextSubtitleSize(void) {
+    NSArray *steps = @[ @80, @100, @125, @150 ];
+    NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"subtitleSize") intValue] ?: 100)];
+    PXSettingSet(@"subtitleSize", steps[(i == NSNotFound ? 1 : i + 1) % steps.count]);
 }

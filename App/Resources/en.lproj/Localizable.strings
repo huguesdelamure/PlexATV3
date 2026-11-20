@@ -91,6 +91,8 @@
 "relais Plex" = "Plex relay";
 "Reprendre %@" = "Resume %@";
 "Reprendre à %@" = "Resume at %@";
+"Reprendre la lecture ?" = "Resume Playback?";
+"Depuis le début" = "From the Beginning";
 "reste %ld min" = "%ld min left";
 "Rien à afficher pour le moment." = "Nothing to show yet.";
 "Réalisation : " = "Directed by ";

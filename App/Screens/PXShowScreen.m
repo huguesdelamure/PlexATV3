@@ -156,7 +156,8 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         [b addObject:[PXButton icon:PXIconPlay title:label action:^{
             PXShowScreen *me = weak;
             PXItem *n = me ? me->_onDeck : nil;
-            if (n && [me isOnTop]) [me push:PXPlayerScreenNew(n, -1)];   // the player resumes past 30 s
+            // "Reprendre SxEy" is a choice already; "Lire" asks if the server has a resume point.
+            if (n && [me isOnTop]) [me push:PXPlayerScreenNew(n, n.viewOffset > 30 ? PXPlayerResume : -1)];
         }]];
     }
     [b addObject:[PXButton icon:PXIconPlay title:PXL(@"Lire la saison") action:^{ [weak playSeason]; }]];

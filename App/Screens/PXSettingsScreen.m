@@ -1,6 +1,7 @@
 // Settings: server choice, transcode quality, account.
 
 #import "PXRouter.h"
+#import "PXTracks.h"
 #import "PXCompanion.h"
 #import "PXBackRow.h"
 #import "PXKeyboard.h"
@@ -112,10 +113,8 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
             PXSettingSet(@"audioBoost", steps[(i == NSNotFound ? 0 : i + 1) % steps.count]);
             [weak buildMain];
         }],
-        [PXListRow title:PXL(@"Taille des sous-titres") value:[self subtitleSizeLabel] action:^{
-            NSArray *steps = @[ @80, @100, @125, @150 ];
-            NSUInteger i = [steps indexOfObject:@([PXSettingGet(@"subtitleSize") intValue] ?: 100)];
-            PXSettingSet(@"subtitleSize", steps[(i == NSNotFound ? 1 : i + 1) % steps.count]);
+        [PXListRow title:PXL(@"Taille des sous-titres") value:PXSubtitleSizeLabel() action:^{
+            PXNextSubtitleSize();
             [weak buildMain];
         }],
         [PXListRow title:PXL(@"Musique des séries") value:[PXSettingGet(@"themeMusic") isEqual:@NO] ? PXL(@"Désactivé") : PXL(@"Activé") action:^{
@@ -152,15 +151,6 @@ static BOOL gFocusLanguage;           // set across the rebuild after a language
         self->_info.frame = CGRectMake(30, 26, 400, h);
         self->_infoPanel.frame = CGRectMake(1320, 230, 460, h + 52);
     });
-}
-
-- (NSString *)subtitleSizeLabel {
-    switch ([PXSettingGet(@"subtitleSize") intValue] ?: 100) {
-        case 80: return PXL(@"Petite");
-        case 125: return PXL(@"Grande");
-        case 150: return PXL(@"Très grande");
-        default: return PXL(@"Normale");
-    }
 }
 
 // Volume boost of the server conversion (dialogue at night, quiet sources).

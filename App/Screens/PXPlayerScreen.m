@@ -78,6 +78,7 @@ static const CGSize kPreview = { 384, 216 };
     BOOL _failed, _ended, _gone, _readyOnce;
     BOOL _userPausedFlag;           // paused by the user (not buffering)
     BOOL _prefsApplied;             // automatic track choice done for this title
+    BOOL _asking;                   // "Reprendre / Depuis le début" shown, nothing started
     double _pendingSeek;            // seek requested before the stream was ready (-1 = none)
     NSDate *_lastDiag;
     NSUInteger _errorsLogged;
@@ -91,6 +92,7 @@ static const CGSize kPreview = { 384, 216 };
     // New session on its way (track change, resync, next title): the old
     // stream stays paused and unreported until startWithPlayback.
     BOOL _restarting;
+    BOOL _preparing;                // playback request of the current start sent, no answer yet
     NSInteger _startSerial;         // ignores playback answers of a superseded start
 
     // Next episode
@@ -312,17 +314,50 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
         me.item = [PXItem itemWithJSON:m];
         [me renderTitles];
         double start = offset < 0 ? (me.item.viewOffset > 30 ? me.item.viewOffset : 0) : offset;
-        // First load: apply the preferred audio / subtitle languages.
-        if (!me->_prefsApplied) {
-            me->_prefsApplied = YES;
-            PXApplyTrackPreferences(me.item, ^(BOOL changed) {
-                if (changed) [weak loadItemThenStartAt:start];
-                else [weak startAt:start];
-            });
-            return;
-        }
-        [me startAt:start];
+        // -1: no choice made yet. Asked from this fresh resume point (a
+        // cached one may be stale).
+        if (offset == -1 && start > 0) { [me askResumeAt:start]; return; }
+        [me applyPrefsThenStartAt:start];
     }];
+}
+
+// First load: apply the preferred audio / subtitle languages.
+- (void)applyPrefsThenStartAt:(double)start {
+    if (_prefsApplied) { [self startAt:start]; return; }
+    _prefsApplied = YES;
+    __weak PXPlayerScreen *weak = self;
+    PXApplyTrackPreferences(self.item, ^(BOOL changed) {
+        if (changed) [weak loadItemThenStartAt:start];
+        else [weak startAt:start];
+    });
+}
+
+// Nothing starts (no session, no timeline) until a choice; Menu leaves.
+- (void)askResumeAt:(double)t {
+    _asking = YES;
+    PXNoAnim(^{ self->_spinner.hidden = YES; });
+    __weak PXPlayerScreen *weak = self;
+    void (^choose)(double) = ^(double from) {
+        PXPlayerScreen *me = weak;
+        if (!me || !me->_asking) return;
+        me->_asking = NO;
+        PXOverlay *o = me->_overlay;
+        o.onClose = nil;
+        [o close];
+        me->_overlay = nil;
+        PXLog(@"player: resume prompt -> %.0f s", from);
+        [me applyPrefsThenStartAt:from];
+    };
+    NSArray *rows = @[ [PXListRow title:PXLF(@"Reprendre à %@", PXClock(t)) value:@"" action:^{ choose(t); }],
+                       [PXListRow title:PXL(@"Depuis le début") value:@"" action:^{ choose(0); }] ];
+    [self openOverlay:PXL(@"Reprendre la lecture ?") rows:rows];
+    _overlay.onClose = ^{
+        PXPlayerScreen *me = weak;
+        if (!me) return;
+        me->_overlay = nil;
+        me->_asking = NO;
+        [me pop];
+    };
 }
 
 #pragma mark - Playback session
@@ -331,6 +366,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     [self stopSession];
     _lastKnownPos = offset;
     NSInteger serial = ++_startSerial;
+    _preparing = YES;
     PXServer *server = self.item.server;
     __weak PXPlayerScreen *weak = self;
     [[PXPlex shared] preparePlayback:self.item.raw offset:offset done:^(NSDictionary *pb, NSError *err) {
@@ -340,6 +376,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
             if (pb[@"session"]) [server stopTranscode:pb[@"session"]];
             return;
         }
+        me->_preparing = NO;
         if (!pb) { [me fail:err.localizedDescription ?: PXL(@"Le serveur refuse la lecture")]; return; }
         [me startWithPlayback:pb offset:offset];
     }];
@@ -517,7 +554,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 
     // Center message: buffering / errors.
     if (!_failed) {
-        BOOL buffering = !_readyOnce || (pi && !pi.playbackLikelyToKeepUp && !playing && !_userPausedFlag);
+        BOOL buffering = (!_readyOnce && !_asking) || (pi && !pi.playbackLikelyToKeepUp && !playing && !_userPausedFlag);
         if (buffering != !_spinner.hidden) PXNoAnim(^{ self->_spinner.hidden = !buffering; });
     }
 
@@ -863,6 +900,18 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     if (it.audioStreams.count)
         [rows addObject:[PXListRow title:PXL(@"Audio") value:PXShortTrack(it.selectedAudio) action:^{ [weak reopen:^{ [weak showAudio]; }]; }]];
     [rows addObject:[PXListRow title:PXL(@"Sous-titres") value:PXShortTrack(it.selectedSubtitle) action:^{ [weak reopen:^{ [weak showSubtitles]; }]; }]];
+    // Any subtitle goes through the server, burned in (no direct play).
+    if (!_directPlay && it.selectedSubtitle) {
+        NSInteger sizeRow = rows.count;
+        [rows addObject:[PXListRow title:PXL(@"Taille des sous-titres") value:PXSubtitleSizeLabel() action:^{
+            [weak nextSubtitleSize];
+            [weak reopen:^{
+                [weak showOptions];
+                PXPlayerScreen *me = weak;
+                if (me) me->_overlay.list.focusIndex = sizeRow;   // keep cycling from the same row
+            }];
+        }]];
+    }
     if (it.chapters.count)
         [rows addObject:[PXListRow title:PXL(@"Chapitres") value:[NSString stringWithFormat:@"%lu", (unsigned long)it.chapters.count] action:^{ [weak reopen:^{ [weak showChapters]; }]; }]];
     [rows addObject:[PXListRow title:PXL(@"Volume") value:PXLF(@"%d %%", (int)lroundf([self storedVolume] * 100)) action:nil]];
@@ -871,6 +920,21 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     info.enabled = NO;
     [rows addObject:info];
     [self openOverlay:PXL(@"Options") rows:rows];
+}
+
+// Saved for every title; a new session at the same position burns the
+// subtitles at the new size.
+- (void)nextSubtitleSize {
+    PXNextSubtitleSize();
+    PXLog(@"player: subtitle size %@", PXSettingGet(@"subtitleSize"));
+    if (_ended || _failed || _asking) return;
+    // Request already sent with the previous size: send it again.
+    if (_preparing) { [self startAt:_lastKnownPos]; return; }
+    // A start on its way, or the restart after a long pause, reads the setting.
+    if (_restarting || !_session || _stalePos) return;
+    double pos = [self position];
+    [self beginRestartAt:pos];
+    [self startAt:pos];
 }
 
 // Replace the options panel by a sub-panel.
@@ -1047,7 +1111,10 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 #pragma mark - Keys
 
 - (BOOL)handleKey:(PXKey)key {
-    if (_overlay) return [_overlay handleKey:key];
+    if (_overlay) {
+        if (_asking && key == PXKeyLeft) return YES;   // Left would close the prompt and leave
+        return [_overlay handleKey:key];
+    }
     if (_next) {
         if (key == PXKeySelect || key == PXKeyPlayPause) [self playNext];
         else if (key == PXKeyMenu) { _next = nil; [self pop]; }

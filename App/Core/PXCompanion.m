@@ -291,8 +291,9 @@ static NSString *ok(void) { return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><
     NSString *rk = [[key componentsSeparatedByString:@"/"] lastObject];
     if (!rk.length) return;
     PXServer *server = [[PXPlex shared] serverWithID:p[@"machineIdentifier"]] ?: [PXPlex shared].primaryServer;
-    // An explicit offset is kept (0 = from the start); none = resume point.
-    double offset = p[@"offset"] ? [p[@"offset"] doubleValue] / 1000 : -1;
+    // An explicit offset is kept (0 = from the start); none = resume point,
+    // without the TV prompt (the user holds the phone, maybe not the remote).
+    double offset = p[@"offset"] ? [p[@"offset"] doubleValue] / 1000 : PXPlayerResume;
     PXLog(@"companion: playMedia %@ on %@ at %.0f s", rk, server.name, offset);
     id stack = [[PXCls("BRApplicationStackManager") singleton] stack];
     if ([p[@"type"] isEqual:@"music"]) {

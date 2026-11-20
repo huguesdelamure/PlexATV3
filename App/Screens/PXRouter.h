@@ -26,7 +26,10 @@ PXScreen *PXScreenForItem(PXItem *item);                   // detail / show / se
 // Same, when only the ratingKey is known (launcher): loads, then swaps itself.
 PXScreen *PXScreenForRatingKey(NSString *ratingKey);
 PXScreen *PXScreenForRatingKeyOnServer(NSString *ratingKey, PXServer *server);   // nil = primary
-// Starts playback of a movie/episode at offset seconds (-1 = resume point from the server).
+// Starts playback of a movie/episode at offset seconds. -1: resume point from
+// the server, asking "Reprendre / Depuis le début" when there is one;
+// PXPlayerResume: same without asking (the user already chose to resume).
+static const double PXPlayerResume = -2;
 PXScreen *PXPlayerScreenNew(PXItem *item, double offset);
 // Plays items in this order (shuffle), each from its start.
 PXScreen *PXPlayerScreenNewQueue(NSArray *items);

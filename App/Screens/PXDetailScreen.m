@@ -395,7 +395,7 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
         }];
         return;
     }
-    [self push:PXPlayerScreenNew(it, resume ? -1 : 0)];
+    [self push:PXPlayerScreenNew(it, resume ? PXPlayerResume : 0)];
 }
 
 - (void)closeOverlay { [_overlay close]; }
@@ -502,7 +502,9 @@ typedef NS_ENUM(NSInteger, PXZone) { PXZoneButtons, PXZoneCast, PXZoneExtras, PX
             return YES;
         case PXKeyPlayPause:
             if (self.item.server.provider) return YES;   // nothing to play online
-            [self play:self.item.viewOffset > 30];
+            // Not an explicit Resume: the player asks when there is a resume point.
+            if (self.item.viewOffset > 30) [self push:PXPlayerScreenNew(self.item, -1)];
+            else [self play:NO];
             return YES;
         case PXKeyMenu:
             if (_zone != PXZoneButtons) { [self setZone:PXZoneButtons]; return YES; }
