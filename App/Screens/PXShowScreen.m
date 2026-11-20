@@ -2,6 +2,9 @@
 //   header    backdrop, title, metadata, ratings, summary, buttons
 //             (resume/play next episode, mark watched)
 //   seasons   pill tabs
+//   ranges    long seasons only: episode range pills ("1–20", "21–40"...),
+//             moving on them jumps the episode row; rewind / fast-forward
+//             jump by range from the episodes too
 //   episodes  16:9 cards; the focused episode's summary is shown below
 // Opened from a show or directly from a season (preselects it).
 
@@ -24,8 +27,22 @@
 PXScreen *PXDetailScreenNew(PXItem *item);
 
 static const CGFloat kLeft = 110, kTextW = 1100, kButtonsY = 660, kSeasonsY = 800, kEpisodesY = 880;
+// Range row (long seasons): takes kRangesH above the episodes.
+static const CGFloat kRangesH = 64, kRangePillH = 44;
+static const NSInteger kRangesFrom = 25;   // more episodes than this: range pills
 
-typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpisodes };
+typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowRanges, PXShowEpisodes };
+
+// Keeps a pill of a bar laid out from kLeft inside the visible width.
+static void PXScrollPillVisible(PXPillBar *bar, NSInteger index) {
+    if (index < 0 || index >= (NSInteger)bar.pills.count) return;
+    CALayer *sel = bar.pills[index];
+    CGFloat x = kLeft - bar.position.x, y = bar.position.y;
+    CGFloat left = CGRectGetMinX(sel.frame), right = CGRectGetMaxX(sel.frame), visible = 1920 - 2 * kLeft;
+    if (left < x) x = left;
+    if (right > x + visible) x = right - visible;
+    PXAnim(0.3, ^{ bar.position = CGPointMake(kLeft - x, y); });
+}
 
 @interface PXShowScreen : PXScreen
 @property (nonatomic, copy) NSString *showKey;
@@ -45,6 +62,9 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     NSArray *_seasons;              // PXItem
     NSInteger _seasonIndex;
     PXShelfLayer *_episodes;
+    CALayer *_rangesBar;
+    PXPillBar *_rangesContent;
+    NSInteger _rangeSize;           // episodes per range pill, 0 = no range row
     CALayer *_epTitle, *_epSummary;   // drawn off the main thread
     PXShowZone _zone;
     PXItem *_show, *_onDeck;
@@ -85,13 +105,25 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         c.subtitleOverride = ep.remainingText ?: (ep.duration > 0 ? PXDurationText(ep.duration) : @"");
     };
     [_page addSublayer:_episodes];
+    _rangesBar = [CALayer layer];
+    _rangesBar.frame = CGRectMake(0, kEpisodesY - 8, 1920, kRangePillH + 16);
+    _rangesBar.masksToBounds = YES;
+    _rangesBar.hidden = YES;
+    [_page addSublayer:_rangesBar];
+    _rangesContent = [[PXPillBar alloc] initWithHeight:kRangePillH];
+    _rangesContent.font = PXFontSemi(22);
+    _rangesContent.padding = 36;
+    _rangesContent.gap = 8;
+    _rangesContent.anchorPoint = CGPointZero;
+    _rangesContent.position = CGPointMake(kLeft, 8);
+    [_rangesBar addSublayer:_rangesContent];
     _epTitle = PXAsyncLabel(nil, PXFontBold(32), PXColorText(), CGRectZero, 1, NO);
-    // Below the episode cards (titles may take 2 lines).
-    _epTitle.frame = CGRectMake(kLeft, kEpisodesY + 362, kTextW, 42);
     _epSummary = PXAsyncLabel(nil, PXFont(26), PXColorWhite(0.8), CGRectZero, 4, NO);
-    _epSummary.frame = CGRectMake(kLeft, kEpisodesY + 412, 1400, 150);
+    _epTitle.frame = CGRectMake(0, 0, kTextW, 42);
+    _epSummary.frame = CGRectMake(0, 0, 1400, 150);
     [_page addSublayer:_epTitle];
     [_page addSublayer:_epSummary];
+    [self layoutEpisodes];
     _status = PXText(PXFontMedium(26), PXColorTextDim());
     _status.frame = CGRectMake(kLeft, 60, 1700, 36);
     [self.layer addSublayer:_status];
@@ -231,16 +263,69 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
 }
 
 - (void)updateSeasonPills {
-    // Keep the selected pill inside the visible width.
-    if (_seasonIndex < (NSInteger)_seasonsContent.pills.count) {
-        CALayer *sel = _seasonsContent.pills[_seasonIndex];
-        CGFloat x = -(_seasonsContent.position.x - kLeft);
-        CGFloat left = CGRectGetMinX(sel.frame), right = CGRectGetMaxX(sel.frame), visible = 1920 - 2 * kLeft;
-        if (left < x) x = left;
-        if (right > x + visible) x = right - visible;
-        PXAnim(0.3, ^{ self->_seasonsContent.position = CGPointMake(kLeft - x, 10); });
-    }
+    PXScrollPillVisible(_seasonsContent, _seasonIndex);
     [_seasonsContent setSelected:_seasonIndex focused:_zone == PXShowSeasons ? _seasonIndex : -1];
+}
+
+#pragma mark - Episode ranges
+
+// Range pills for long seasons, labelled with the episode numbers they hold.
+- (void)buildRanges {
+    NSArray *eps = _episodes.items;
+    NSInteger n = eps.count;
+    _rangeSize = n <= kRangesFrom ? 0 : (n <= 300 ? 20 : 50);
+    NSMutableArray *titles = [NSMutableArray array];
+    for (NSInteger lo = 0; _rangeSize && lo < n; lo += _rangeSize) {
+        NSInteger hi = MIN(lo + _rangeSize, n) - 1;
+        id a = eps[lo], b = eps[hi];
+        NSInteger from = [a isKindOfClass:[PXItem class]] ? [a index] : 0;
+        NSInteger to = [b isKindOfClass:[PXItem class]] ? [b index] : 0;
+        if (to <= 0 || to < from) { from = lo + 1; to = hi + 1; }   // no usable numbers: positions
+        [titles addObject:from == to ? [@(from) stringValue] : [NSString stringWithFormat:@"%ld–%ld", (long)from, (long)to]];
+    }
+    if (![titles isEqual:_rangesContent.titles]) {
+        _rangesContent.titles = titles;
+        PXNoAnim(^{ self->_rangesContent.position = CGPointMake(kLeft, 8); });
+    }
+    if (!_rangeSize && _zone == PXShowRanges) _zone = PXShowEpisodes;
+    [self layoutEpisodes];
+    [self applyZone:YES];
+}
+
+// Episode row, title and summary sit lower when the range row is shown.
+- (void)layoutEpisodes {
+    CGFloat dy = _rangeSize ? kRangesH : 0;
+    void (^apply)(void) = ^{
+        self->_rangesBar.hidden = !self->_rangeSize;
+        self->_episodes.position = CGPointMake(0, kEpisodesY - 56 + dy);   // shelf title row unused
+        // Below the episode cards (titles may take 2 lines). Origin only:
+        // the async text drawing sizes these layers to their text.
+        CGRect t = self->_epTitle.frame, s = self->_epSummary.frame;
+        self->_epTitle.frame = CGRectMake(kLeft, kEpisodesY + 362 + dy, t.size.width, t.size.height);
+        self->_epSummary.frame = CGRectMake(kLeft, kEpisodesY + 412 + dy, s.size.width, s.size.height);
+    };
+    BOOL changed = _rangesBar.hidden == (_rangeSize > 0);
+    if (changed) PXAnim(0.3, apply); else PXNoAnim(apply);
+}
+
+- (void)updateRangePills {
+    if (!_rangeSize) return;
+    NSInteger r = _episodes.focusIndex / _rangeSize;
+    PXScrollPillVisible(_rangesContent, r);
+    [_rangesContent setSelected:r focused:_zone == PXShowRanges ? r : -1];
+}
+
+// Focus the first episode of range r (no cell rebuilt: the shelf recycles).
+- (void)jumpToRange:(NSInteger)r {
+    NSInteger count = _rangeSize ? ((NSInteger)_episodes.items.count + _rangeSize - 1) / _rangeSize : 0;
+    if (r < 0 || r >= count) return;
+    // Range start on the left of the row: the shelf only scrolls as little
+    // as needed, so a forward jump would leave it on the right edge.
+    NSInteger start = r * _rangeSize;
+    [_episodes setFocusIndex:MIN(start + _rangeSize, (NSInteger)_episodes.items.count) - 1 animated:NO];
+    [_episodes setFocusIndex:start animated:NO];
+    [self updateRangePills];
+    [self showEpisodeInfo];
 }
 
 - (void)loadEpisodes {
@@ -259,6 +344,7 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
         NSInteger pick = keep;
         for (NSUInteger i = 0; i < eps.count && pick < 0; i++) if (![eps[i] watched]) pick = i;
         [me->_episodes setFocusIndex:MAX(0, pick) animated:NO];
+        [me buildRanges];
         [me showEpisodeInfo];
     }];
 }
@@ -283,8 +369,10 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
     _buttons.active = _zone == PXShowButtons;
     _episodes.active = _zone == PXShowEpisodes;
     [self updateSeasonPills];
-    CGFloat offset = _zone == PXShowButtons ? 0 : kSeasonsY - 330;
+    [self updateRangePills];
+    // Ranges and episodes: the page also scrolls past the range row.
     BOOL lower = _zone != PXShowButtons;
+    CGFloat offset = !lower ? 0 : kSeasonsY - 330 + (_zone != PXShowSeasons && _rangeSize ? kRangesH : 0);
     void (^apply)(void) = ^{
         self->_page.position = CGPointMake(0, -offset);
         self->_header.opacity = lower ? 0.0 : 1;
@@ -356,22 +444,36 @@ typedef NS_ENUM(NSInteger, PXShowZone) { PXShowButtons, PXShowSeasons, PXShowEpi
             else if (_zone == PXShowSeasons) {
                 NSInteger t = _seasonIndex + d;
                 if (t >= 0 && t < (NSInteger)_seasons.count) { _seasonIndex = t; _userMovedSeason = YES; [self updateSeasonPills]; [self loadEpisodes]; }
-            } else if ([_episodes moveBy:d]) [self showEpisodeInfo];
+            } else if (_zone == PXShowRanges) [self jumpToRange:_episodes.focusIndex / _rangeSize + d];
+            else if ([_episodes moveBy:d]) {
+                NSInteger f = _episodes.focusIndex;
+                if (_rangeSize && f / _rangeSize != (f - d) / _rangeSize) [self updateRangePills];
+                [self showEpisodeInfo];
+            }
+            return YES;
+        }
+        case PXKeyRewind: case PXKeyFastForward: {
+            if (!_rangeSize || (_zone != PXShowRanges && _zone != PXShowEpisodes)) return NO;
+            // Rewind: start of the current range, or the previous one when already there.
+            NSInteger f = _episodes.focusIndex, r = f / _rangeSize;
+            [self jumpToRange:key == PXKeyFastForward ? r + 1 : (f % _rangeSize ? r : r - 1)];
             return YES;
         }
         case PXKeyDown:
             if (_zone == PXShowButtons && _seasons.count) _zone = PXShowSeasons;
-            else if (_zone == PXShowSeasons && _episodes.items.count) _zone = PXShowEpisodes;
+            else if (_zone == PXShowSeasons && _episodes.items.count) _zone = _rangeSize ? PXShowRanges : PXShowEpisodes;
+            else if (_zone == PXShowRanges) _zone = PXShowEpisodes;
             [self applyZone:YES];
             return YES;
         case PXKeyUp:
-            if (_zone == PXShowEpisodes) _zone = PXShowSeasons;
+            if (_zone == PXShowEpisodes) _zone = _rangeSize ? PXShowRanges : PXShowSeasons;
+            else if (_zone == PXShowRanges) _zone = PXShowSeasons;
             else if (_zone == PXShowSeasons) _zone = PXShowButtons;
             [self applyZone:YES];
             return YES;
         case PXKeySelect:
             if (_zone == PXShowButtons) [_buttons activate];
-            else if (_zone == PXShowSeasons) { if (_episodes.items.count) { _zone = PXShowEpisodes; [self applyZone:YES]; } }
+            else if (_zone == PXShowSeasons || _zone == PXShowRanges) { if (_episodes.items.count) { _zone = PXShowEpisodes; [self applyZone:YES]; } }
             else if (_episodes.focusedItem) [self push:PXDetailScreenNew(_episodes.focusedItem)];
             return YES;
         case PXKeyPlayPause: {
