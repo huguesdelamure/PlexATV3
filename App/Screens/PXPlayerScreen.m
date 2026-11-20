@@ -58,6 +58,7 @@ static const CGSize kPreview = { 384, 216 };
     BOOL _sleepAtEnd;                     // sleep timer: stop at the end of this item
     CATextLayer *_skipText;
     NSDictionary *_activeMarker;
+    NSDate *_skipShownAt;                 // skip button on screen since (nil: hidden)
     PXBif *_bif;
     // Software volume (the Apple TV 3 has no volume control of its own).
     CALayer *_volumeHUD, *_volumeFill;
@@ -597,8 +598,15 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     });
 }
 
-// Intro / credits markers: show a skip button while inside one.
+// Intro / credits markers: offer a skip button for a few seconds on entering
+// one (or seeking inside it), then hide it so Select pauses again.
+- (void)hideSkipButton {
+    _skipShownAt = nil;
+    PXAnim(0.3, ^{ self->_skipButton.opacity = 0; });
+}
+
 - (void)updateMarkers {
+    if (_skipShownAt && [_skipShownAt timeIntervalSinceNow] < -8) [self hideSkipButton];
     double pos = [self position];
     NSDictionary *active = nil;
     for (NSDictionary *m in self.item.markers) {
@@ -607,14 +615,16 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
         double a = [m[@"start"] doubleValue], b = [m[@"end"] doubleValue];
         if (pos >= a && pos < b - 1) { active = m; break; }
     }
+    if (!active && _skipShownAt) [self hideSkipButton];
     if (active == _activeMarker || [active isEqual:_activeMarker]) return;
     _activeMarker = active;
     if (active) {
         BOOL credits = [active[@"type"] isEqual:@"credits"];
         PXSetText(_skipText, credits ? (self.item.type == PXItemEpisode ? PXL(@"Épisode suivant") : PXL(@"Passer le générique")) : PXL(@"Passer l'intro"));
+        _skipShownAt = [NSDate date];
+        PXAnim(0.3, ^{ self->_skipButton.opacity = 1; });
+        PXSpringScale(_skipButton, 1.0);
     }
-    PXAnim(0.3, ^{ self->_skipButton.opacity = active ? 1 : 0; });
-    if (active) PXSpringScale(_skipButton, 1.0);
     // Réglages > Passer l'intro / le générique : Automatique. Once per marker,
     // so seeking back into it lets the user watch it.
     BOOL credits = [active[@"type"] isEqual:@"credits"];
@@ -653,7 +663,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     NSDictionary *m = _activeMarker;
     if (!m) return;
     _activeMarker = nil;
-    PXAnim(0.2, ^{ self->_skipButton.opacity = 0; });
+    [self hideSkipButton];
     if ([m[@"type"] isEqual:@"credits"] && self.item.type == PXItemEpisode) { [self didReachEnd]; return; }
     [self seekTo:[m[@"end"] doubleValue]];
 }
@@ -713,6 +723,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
 }
 
 - (void)seekTo:(double)t {
+    _activeMarker = nil;   // seeking inside a marker offers the skip button again
     if (!_readyOnce) { _pendingSeek = t; _lastKnownPos = t; return; }
     // After a long pause an explicit seek is the user's choice, not a stale
     // position: a transcode restarts there (the server may have dropped the
@@ -1024,6 +1035,9 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
     _nextPanel = nil;
     [self beginRestartAt:0];
     self.item = next;
+    _autoSkipped = nil;   // markers are keyed by start time: per item
+    _activeMarker = nil;
+    if (_skipShownAt) [self hideSkipButton];
     _prefsApplied = NO;
     [self renderTitles];
     PXSetText(_center, @"");
@@ -1045,7 +1059,7 @@ static __weak PXPlayerScreen *gCurrentPlayer;   // for remote control (Companion
             if (_osdVisible && _player.rate > 0 && !_failed) { [self showOSD:NO]; return YES; }
             return NO;   // stop: host pops, didPop cleans up
         case PXKeySelect:
-            if (_activeMarker && !_osdVisible && !_scrubbing) { [self skipMarker]; return YES; }
+            if (_activeMarker && _skipShownAt && !_osdVisible && !_scrubbing) { [self skipMarker]; return YES; }
             [self togglePause];
             return YES;
         case PXKeyPlayPause:
