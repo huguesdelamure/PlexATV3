@@ -5,6 +5,24 @@ changes that break settings or installation, minor for features, patch for
 fixes. Each release is a tag `vX.Y.Z` with a build attached on the GitHub
 Releases page (see `scripts/release.sh`).
 
+## [1.3.0]
+
+- Playback: skip intro and credits (button, or automatic in Settings); the
+  button shows for 8 s, then Select pauses again.
+- "Resume at ... / From the beginning" choice, from the server's position:
+  a title continued on another device resumes where it was left there.
+- Sleep timer, up next queue (Play Next / Add to Queue), play a season in
+  order, cinema trailers before a movie, audio boost.
+- Subtitle size from the player options.
+- Libraries: Recommended page, Recently Watched row, show extras, similar
+  titles at the end of a movie; remove from Continue Watching (long press).
+- Long seasons: episode range pills, rewind / fast-forward jump by range.
+- Music: artist page (biography, albums, popular tracks), artist and track
+  radios (servers that provide them), plain lyrics follow the track.
+- Photos by date, Ken Burns slideshow.
+- Fixes: playback state and transcode sessions, refreshes that failed or
+  came late, networking and image cache, faster home, search and libraries.
+
 ## [1.2.0]
 
 - Fix: the screensaver no longer starts during a video, and the Apple TV
